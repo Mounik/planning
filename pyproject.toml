@@ -1,0 +1,22 @@
+[project]
+name = "planning"
+version = "0.1.0"
+description = "Estimation du salaire et des heures supplémentaires à l'aide de votre planning"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "flask>=3.1.1",
+    "reportlab>=4.4.2",
+    "flask-login>=0.6.3",
+    "werkzeug>=3.0.0",
+    "bcrypt>=4.0.1",
+    "flask-mail>=0.9.1",
+    "itsdangerous>=2.1.2",
+]
+
+[dependency-groups]
+dev = [
+    "black>=25.1.0",
+    "flake8>=7.3.0",
+    "mypy>=1.17.0",
+]

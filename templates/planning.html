@@ -1,0 +1,560 @@
+{% extends "base.html" %}
+
+{% block title %}Planning - Gestionnaire d'Heures{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <h1 class="mb-4">Gestion du Planning</h1>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-plus"></i> Nouveau Planning
+                </h5>
+            </div>
+            <div class="card-body">
+                <form id="planningForm">
+                    <div class="mb-3">
+                        <label for="mois" class="form-label">Mois</label>
+                        <select class="form-select" id="mois" required>
+                            <option value="">Choisir un mois</option>
+                            <option value="1">Janvier</option>
+                            <option value="2">Février</option>
+                            <option value="3">Mars</option>
+                            <option value="4">Avril</option>
+                            <option value="5">Mai</option>
+                            <option value="6">Juin</option>
+                            <option value="7">Juillet</option>
+                            <option value="8">Août</option>
+                            <option value="9">Septembre</option>
+                            <option value="10">Octobre</option>
+                            <option value="11">Novembre</option>
+                            <option value="12">Décembre</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="annee" class="form-label">Année</label>
+                        <input type="number" class="form-control" id="annee" min="2020" max="2030" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="tauxHoraire" class="form-label">Taux horaire brut (€)</label>
+                        <input type="number" class="form-control" id="tauxHoraire" step="0.01" min="0" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="heuresContractuelles" class="form-label">Heures contractuelles par semaine</label>
+                        <input type="number" class="form-control" id="heuresContractuelles" step="0.5" min="0" value="35" required>
+                        <div class="form-text">Nombre d'heures par semaine selon votre contrat (ex: 20h, 25h, 30h, 35h...)</div>
+                    </div>
+                    
+                    <button type="button" class="btn btn-primary" onclick="genererCalendrier()">
+                        <i class="fas fa-calendar"></i> Générer le Calendrier
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-list"></i> Plannings Existants
+                </h5>
+            </div>
+            <div class="card-body">
+                <div id="planningsExistants">
+                    <p class="text-muted">Chargement des plannings...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4" id="calendrierSection" style="display: none;">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-calendar-alt"></i> Calendrier du Planning
+                </h5>
+                <button type="button" class="btn btn-success" onclick="sauvegarderPlanning()">
+                    <i class="fas fa-save"></i> <span id="btnSauvegarderText">Sauvegarder le Planning</span>
+                </button>
+                <button type="button" class="btn btn-secondary ms-2" onclick="annulerModification()" id="btnAnnuler" style="display: none;">
+                    <i class="fas fa-times"></i> Annuler
+                </button>
+            </div>
+            <div class="card-body">
+                <div id="calendrier"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let joursPlanning = [];
+let moisCourant, anneeCourante;
+let planningIdEnCours = null; // Pour savoir si on modifie un planning existant
+
+function genererCalendrier() {
+    const mois = document.getElementById('mois').value;
+    const annee = document.getElementById('annee').value;
+    
+    if (!mois || !annee) {
+        alert('Veuillez sélectionner un mois et une année');
+        return;
+    }
+    
+    moisCourant = parseInt(mois);
+    anneeCourante = parseInt(annee);
+    
+    const calendrier = document.getElementById('calendrier');
+    const section = document.getElementById('calendrierSection');
+    
+    // Obtenir le nombre de jours dans le mois
+    const nbJours = new Date(annee, mois, 0).getDate();
+    
+    let html = '<div class="table-responsive"><table class="table table-striped">';
+    html += '<thead><tr><th>Date</th><th>Jour</th><th>Travail</th><th>Créneaux</th><th>Actions</th></tr></thead><tbody>';
+    
+    joursPlanning = [];
+    
+    for (let jour = 1; jour <= nbJours; jour++) {
+        const date = new Date(annee, mois - 1, jour);
+        const nomJour = date.toLocaleDateString('fr-FR', { weekday: 'long' });
+        const dateStr = date.toISOString().split('T')[0];
+        
+        // Par défaut, travailler tous les jours (restaurants travaillent souvent 7j/7)
+        const travaille = true;
+        
+        html += `<tr>
+            <td>${jour}/${mois}/${annee}</td>
+            <td>${nomJour}</td>
+            <td>
+                <input type="checkbox" class="form-check-input" id="travail_${jour}" ${travaille ? 'checked' : ''} 
+                       onchange="toggleJourTravail(${jour})">
+            </td>
+            <td>
+                <div id="creneaux_${jour}" class="creneaux-container">
+                    <div class="creneau-item mb-2">
+                        <div class="row">
+                            <div class="col-5">
+                                <input type="time" class="form-control form-control-sm" id="debut_${jour}_0" value="11:00">
+                            </div>
+                            <div class="col-5">
+                                <input type="time" class="form-control form-control-sm" id="fin_${jour}_0" value="14:00">
+                            </div>
+                            <div class="col-2">
+                                <button type="button" class="btn btn-sm btn-danger" onclick="supprimerCreneau(${jour}, 0)">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="creneau-item mb-2">
+                        <div class="row">
+                            <div class="col-5">
+                                <input type="time" class="form-control form-control-sm" id="debut_${jour}_1" value="19:00">
+                            </div>
+                            <div class="col-5">
+                                <input type="time" class="form-control form-control-sm" id="fin_${jour}_1" value="23:00">
+                            </div>
+                            <div class="col-2">
+                                <button type="button" class="btn btn-sm btn-danger" onclick="supprimerCreneau(${jour}, 1)">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </td>
+            <td>
+                <button type="button" class="btn btn-sm btn-success" onclick="ajouterCreneau(${jour})">
+                    <i class="fas fa-plus"></i>
+                </button>
+            </td>
+        </tr>`;
+        
+        if (travaille) {
+            joursPlanning.push({
+                date: dateStr,
+                creneaux: [
+                    { heure_debut: '11:00', heure_fin: '14:00' },
+                    { heure_debut: '19:00', heure_fin: '23:00' }
+                ]
+            });
+        }
+    }
+    
+    html += '</tbody></table></div>';
+    calendrier.innerHTML = html;
+    section.style.display = 'block';
+}
+
+function toggleJourTravail(jour) {
+    const checkbox = document.getElementById(`travail_${jour}`);
+    const creneauxContainer = document.getElementById(`creneaux_${jour}`);
+    
+    if (checkbox.checked) {
+        creneauxContainer.style.display = 'block';
+    } else {
+        creneauxContainer.style.display = 'none';
+    }
+}
+
+function ajouterCreneau(jour) {
+    const container = document.getElementById(`creneaux_${jour}`);
+    const creneaux = container.querySelectorAll('.creneau-item');
+    const index = creneaux.length;
+    
+    const nouveauCreneau = document.createElement('div');
+    nouveauCreneau.className = 'creneau-item mb-2';
+    nouveauCreneau.innerHTML = `
+        <div class="row">
+            <div class="col-5">
+                <input type="time" class="form-control form-control-sm" id="debut_${jour}_${index}" value="09:00">
+            </div>
+            <div class="col-5">
+                <input type="time" class="form-control form-control-sm" id="fin_${jour}_${index}" value="17:00">
+            </div>
+            <div class="col-2">
+                <button type="button" class="btn btn-sm btn-danger" onclick="supprimerCreneau(${jour}, ${index})">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </div>
+    `;
+    
+    container.appendChild(nouveauCreneau);
+}
+
+function supprimerCreneau(jour, index) {
+    const container = document.getElementById(`creneaux_${jour}`);
+    const creneaux = container.querySelectorAll('.creneau-item');
+    
+    if (creneaux.length > 1) {
+        const creneau = document.getElementById(`debut_${jour}_${index}`).closest('.creneau-item');
+        creneau.remove();
+    } else {
+        alert('Vous devez garder au moins un créneau par jour de travail');
+    }
+}
+
+function sauvegarderPlanning() {
+    const mois = document.getElementById('mois').value;
+    const annee = document.getElementById('annee').value;
+    const tauxHoraire = document.getElementById('tauxHoraire').value;
+    const heuresContractuelles = document.getElementById('heuresContractuelles').value;
+    
+    if (!mois || !annee || !tauxHoraire || !heuresContractuelles) {
+        alert('Veuillez remplir tous les champs');
+        return;
+    }
+    
+    joursPlanning = [];
+    
+    // Récupérer les données du calendrier
+    const nbJours = new Date(annee, mois, 0).getDate();
+    
+    for (let jour = 1; jour <= nbJours; jour++) {
+        const checkbox = document.getElementById(`travail_${jour}`);
+        
+        if (checkbox.checked) {
+            const date = new Date(annee, mois - 1, jour);
+            const dateStr = date.toISOString().split('T')[0];
+            
+            const creneauxContainer = document.getElementById(`creneaux_${jour}`);
+            const creneauxElements = creneauxContainer.querySelectorAll('.creneau-item');
+            
+            const creneaux = [];
+            creneauxElements.forEach((creneauElement, index) => {
+                const debut = creneauElement.querySelector(`input[id^="debut_${jour}_"]`);
+                const fin = creneauElement.querySelector(`input[id^="fin_${jour}_"]`);
+                
+                if (debut && fin && debut.value && fin.value) {
+                    creneaux.push({
+                        heure_debut: debut.value,
+                        heure_fin: fin.value
+                    });
+                }
+            });
+            
+            if (creneaux.length > 0) {
+                joursPlanning.push({
+                    date: dateStr,
+                    creneaux: creneaux
+                });
+            }
+        }
+    }
+    
+    const planning = {
+        mois: parseInt(mois),
+        annee: parseInt(annee),
+        jours_travail: joursPlanning,
+        taux_horaire: parseFloat(tauxHoraire),
+        heures_contractuelles: parseFloat(heuresContractuelles)
+    };
+    
+    const url = planningIdEnCours ? `/api/planning/${planningIdEnCours}` : '/api/planning';
+    const method = planningIdEnCours ? 'PUT' : 'POST';
+    
+    fetch(url, {
+        method: method,
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(planning)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const message = planningIdEnCours ? 'Planning modifié avec succès !' : 'Planning sauvegardé avec succès !';
+            alert(message);
+            chargerPlannings();
+            annulerModification();
+        } else {
+            alert('Erreur lors de la sauvegarde');
+        }
+    })
+    .catch(error => {
+        console.error('Erreur:', error);
+        alert('Erreur lors de la sauvegarde');
+    });
+}
+
+function chargerPlannings() {
+    fetch('/api/planning')
+    .then(response => response.json())
+    .then(data => {
+        const container = document.getElementById('planningsExistants');
+        
+        if (data.length === 0) {
+            container.innerHTML = '<p class="text-muted">Aucun planning créé</p>';
+            return;
+        }
+        
+        let html = '';
+        data.forEach(planning => {
+            const moisNoms = ['', 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 
+                             'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+            
+            html += `
+                <div class="card mb-2">
+                    <div class="card-body">
+                        <h6 class="card-title">${moisNoms[planning.mois]} ${planning.annee}</h6>
+                        <p class="card-text small">
+                            Taux: ${planning.taux_horaire}€/h<br>
+                            Heures contractuelles: ${planning.heures_contractuelles || 35}h/semaine<br>
+                            Jours travaillés: ${planning.jours_travail.length}<br>
+                            Créneaux totaux: ${planning.jours_travail.reduce((total, jour) => total + (jour.creneaux ? jour.creneaux.length : 0), 0)}
+                        </p>
+                        <div class="btn-group" role="group">
+                            <button class="btn btn-sm btn-primary" onclick="modifierPlanning(${planning.id})">
+                                <i class="fas fa-edit"></i> Modifier
+                            </button>
+                            <button class="btn btn-sm btn-success" onclick="convertirEnFeuille(${planning.id})">
+                                <i class="fas fa-arrow-right"></i> Convertir
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        
+        container.innerHTML = html;
+    })
+    .catch(error => {
+        console.error('Erreur:', error);
+        document.getElementById('planningsExistants').innerHTML = '<p class="text-danger">Erreur lors du chargement</p>';
+    });
+}
+
+function modifierPlanning(planningId) {
+    fetch(`/api/planning/${planningId}`)
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            alert('Erreur: ' + data.error);
+            return;
+        }
+        
+        // Remplir les champs du formulaire
+        document.getElementById('mois').value = data.mois;
+        document.getElementById('annee').value = data.annee;
+        document.getElementById('tauxHoraire').value = data.taux_horaire;
+        document.getElementById('heuresContractuelles').value = data.heures_contractuelles || 35;
+        
+        // Stocker l'ID du planning en cours de modification
+        planningIdEnCours = planningId;
+        
+        // Changer le texte du bouton
+        document.getElementById('btnSauvegarderText').textContent = 'Mettre à jour le Planning';
+        document.getElementById('btnAnnuler').style.display = 'inline-block';
+        
+        // Générer le calendrier avec les données existantes
+        genererCalendrierAvecDonnees(data.jours_travail);
+        
+        // Faire défiler vers le calendrier
+        document.getElementById('calendrierSection').scrollIntoView({ behavior: 'smooth' });
+    })
+    .catch(error => {
+        console.error('Erreur:', error);
+        alert('Erreur lors du chargement du planning');
+    });
+}
+
+function genererCalendrierAvecDonnees(joursExistants) {
+    const mois = document.getElementById('mois').value;
+    const annee = document.getElementById('annee').value;
+    
+    moisCourant = parseInt(mois);
+    anneeCourante = parseInt(annee);
+    
+    const calendrier = document.getElementById('calendrier');
+    const section = document.getElementById('calendrierSection');
+    
+    // Obtenir le nombre de jours dans le mois
+    const nbJours = new Date(annee, mois, 0).getDate();
+    
+    let html = '<div class="table-responsive"><table class="table table-striped">';
+    html += '<thead><tr><th>Date</th><th>Jour</th><th>Travail</th><th>Créneaux</th><th>Actions</th></tr></thead><tbody>';
+    
+    joursPlanning = [];
+    
+    for (let jour = 1; jour <= nbJours; jour++) {
+        const date = new Date(annee, mois - 1, jour);
+        const nomJour = date.toLocaleDateString('fr-FR', { weekday: 'long' });
+        const dateStr = date.toISOString().split('T')[0];
+        
+        // Chercher si ce jour existe dans les données
+        const jourExistant = joursExistants.find(j => j.date === dateStr);
+        const travaille = jourExistant ? true : false;
+        
+        html += `<tr>
+            <td>${jour}/${mois}/${annee}</td>
+            <td>${nomJour}</td>
+            <td>
+                <input type="checkbox" class="form-check-input" id="travail_${jour}" ${travaille ? 'checked' : ''} 
+                       onchange="toggleJourTravail(${jour})">
+            </td>
+            <td>
+                <div id="creneaux_${jour}" class="creneaux-container" ${travaille ? '' : 'style="display: none;"'}>`;
+        
+        if (jourExistant && jourExistant.creneaux) {
+            jourExistant.creneaux.forEach((creneau, index) => {
+                html += `
+                    <div class="creneau-item mb-2">
+                        <div class="row">
+                            <div class="col-5">
+                                <input type="time" class="form-control form-control-sm" id="debut_${jour}_${index}" value="${creneau.heure_debut}">
+                            </div>
+                            <div class="col-5">
+                                <input type="time" class="form-control form-control-sm" id="fin_${jour}_${index}" value="${creneau.heure_fin}">
+                            </div>
+                            <div class="col-2">
+                                <button type="button" class="btn btn-sm btn-danger" onclick="supprimerCreneau(${jour}, ${index})">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            // Ajouter au planning
+            joursPlanning.push({
+                date: dateStr,
+                creneaux: jourExistant.creneaux
+            });
+        } else if (!travaille) {
+            // Ajouter un créneau par défaut si le jour n'existe pas
+            html += `
+                <div class="creneau-item mb-2">
+                    <div class="row">
+                        <div class="col-5">
+                            <input type="time" class="form-control form-control-sm" id="debut_${jour}_0" value="11:00">
+                        </div>
+                        <div class="col-5">
+                            <input type="time" class="form-control form-control-sm" id="fin_${jour}_0" value="14:00">
+                        </div>
+                        <div class="col-2">
+                            <button type="button" class="btn btn-sm btn-danger" onclick="supprimerCreneau(${jour}, 0)">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        html += `
+                </div>
+            </td>
+            <td>
+                <button type="button" class="btn btn-sm btn-success" onclick="ajouterCreneau(${jour})">
+                    <i class="fas fa-plus"></i>
+                </button>
+            </td>
+        </tr>`;
+    }
+    
+    html += '</tbody></table></div>';
+    calendrier.innerHTML = html;
+    section.style.display = 'block';
+}
+
+function annulerModification() {
+    planningIdEnCours = null;
+    document.getElementById('btnSauvegarderText').textContent = 'Sauvegarder le Planning';
+    document.getElementById('btnAnnuler').style.display = 'none';
+    document.getElementById('calendrierSection').style.display = 'none';
+    
+    // Réinitialiser le formulaire
+    document.getElementById('mois').value = '';
+    document.getElementById('annee').value = new Date().getFullYear();
+    document.getElementById('tauxHoraire').value = '';
+    document.getElementById('heuresContractuelles').value = 35;
+}
+
+function convertirEnFeuille(planningId) {
+    if (confirm('Convertir ce planning en feuille d\'heures ?')) {
+        fetch(`/api/planning/${planningId}/convert`, {
+            method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const message = data.message || 'Planning converti en feuille d\'heures avec succès !';
+                alert(message);
+                window.location.href = '/feuille-heures';
+            } else {
+                alert('Erreur lors de la conversion');
+            }
+        })
+        .catch(error => {
+            console.error('Erreur:', error);
+            alert('Erreur lors de la conversion');
+        });
+    }
+}
+
+// Charger les plannings au chargement de la page
+document.addEventListener('DOMContentLoaded', function() {
+    chargerPlannings();
+    
+    // Définir l'année courante par défaut
+    document.getElementById('annee').value = new Date().getFullYear();
+});
+</script>
+{% endblock %}

@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block title %}Accueil - Gestionnaire d'Heures{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <h1 class="mb-4">Gestionnaire d'Heures de Travail</h1>
+        <p class="lead">Gérez facilement vos heures de travail, calculez vos heures supplémentaires et estimez votre salaire.</p>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">
+                    <i class="fas fa-calendar-alt text-primary"></i> Planning
+                </h5>
+                <p class="card-text">
+                    Créez et gérez votre planning mensuel. Définissez vos horaires de travail à l'avance.
+                </p>
+                <a href="{{ url_for('planning') }}" class="btn btn-primary">
+                    <i class="fas fa-plus"></i> Créer un Planning
+                </a>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">
+                    <i class="fas fa-file-invoice text-success"></i> Feuille d'Heures
+                </h5>
+                <p class="card-text">
+                    Convertissez votre planning en feuille d'heures et calculez automatiquement vos heures supplémentaires.
+                </p>
+                <a href="{{ url_for('feuille_heures') }}" class="btn btn-success">
+                    <i class="fas fa-calculator"></i> Voir les Feuilles
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Comment ça marche ?</h5>
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="text-center">
+                            <i class="fas fa-calendar-plus fa-3x text-primary mb-3"></i>
+                            <h6>1. Créez votre planning</h6>
+                            <p class="small">Définissez vos horaires de travail pour le mois</p>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="text-center">
+                            <i class="fas fa-mouse-pointer fa-3x text-warning mb-3"></i>
+                            <h6>2. Convertissez en un clic</h6>
+                            <p class="small">Transformez votre planning en feuille d'heures</p>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="text-center">
+                            <i class="fas fa-euro-sign fa-3x text-success mb-3"></i>
+                            <h6>3. Calculez votre salaire</h6>
+                            <p class="small">Obtenez automatiquement le calcul de vos heures supplémentaires</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

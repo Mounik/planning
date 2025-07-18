@@ -4,7 +4,6 @@ selon le type de contrat de travail
 """
 
 from typing import Dict, List, Optional, Any
-import json
 
 # Configuration des seuils de majoration par type de contrat
 SALARY_CONFIG = [
@@ -154,7 +153,7 @@ class SalaryCalculator:
                 majoration = comp["majoration"]
 
                 # Calculer les heures dans cette tranche
-                heures_tranche_debut = max(0, debut - heures_contractuelles)
+                max(0, debut - heures_contractuelles)
                 heures_tranche_fin = (
                     fin - heures_contractuelles if fin else float("inf")
                 )

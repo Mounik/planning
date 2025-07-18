@@ -6,10 +6,9 @@ import re
 import html
 import logging
 from functools import wraps
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, Any, Optional, Union
-from flask import request, jsonify, current_app
-from werkzeug.exceptions import BadRequest
+from flask import request, jsonify
 
 
 # Configuration du logging de sécurité
@@ -196,8 +195,8 @@ def rate_limit(max_requests: int = 100, window_seconds: int = 3600):
         @wraps(f)
         def decorated_function(*args, **kwargs):
             # Implémentation basique - en production, utiliser Redis ou memcached
-            client_ip = request.remote_addr
-            current_time = datetime.now()
+            request.remote_addr
+            datetime.now()
 
             # Pour cette implémentation, on accepte toutes les requêtes
             # En production, implémenter un vrai rate limiting

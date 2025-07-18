@@ -452,11 +452,10 @@ class FeuilleDHeures:
     def calculer_salaire(self) -> Dict:
         """Calcule le salaire brut estimé avec le système hebdomadaire correct"""
         from .salary_calculator import salary_calculator
-        from datetime import datetime, timedelta
-        
+
         # Calculer le salaire semaine par semaine
         semaines_heures = self._regrouper_par_semaine()
-        
+
         # Initialiser les totaux
         result = {
             "contrat": f"{self.heures_contractuelles}h",
@@ -474,42 +473,54 @@ class FeuilleDHeures:
             "salaire_brut_total": 0,
             "detail_supplementaires": [],
             "nb_semaines_calculees": len(semaines_heures),
-            "detail_semaines": []
+            "detail_semaines": [],
         }
-        
+
         # Calculer chaque semaine
         for semaine_num, heures_semaine in enumerate(semaines_heures, 1):
             if heures_semaine > 0:
                 result_semaine = salary_calculator.calculate_salary(
                     heures_semaine, self.heures_contractuelles, self.taux_horaire
                 )
-                
+
                 # Additionner aux totaux
                 result["heures_normales"] += result_semaine["heures_normales"]
-                result["heures_complementaires"] += result_semaine["heures_complementaires"]
-                result["heures_complementaires_majorees"] += result_semaine["heures_complementaires_majorees"]
+                result["heures_complementaires"] += result_semaine[
+                    "heures_complementaires"
+                ]
+                result["heures_complementaires_majorees"] += result_semaine[
+                    "heures_complementaires_majorees"
+                ]
                 result["salaire_normal"] += result_semaine["salaire_normal"]
-                result["salaire_complementaire"] += result_semaine["salaire_complementaire"]
-                result["salaire_complementaire_majore"] += result_semaine["salaire_complementaire_majore"]
-                result["salaire_supplementaire"] += result_semaine["salaire_supplementaire"]
+                result["salaire_complementaire"] += result_semaine[
+                    "salaire_complementaire"
+                ]
+                result["salaire_complementaire_majore"] += result_semaine[
+                    "salaire_complementaire_majore"
+                ]
+                result["salaire_supplementaire"] += result_semaine[
+                    "salaire_supplementaire"
+                ]
                 result["salaire_brut_total"] += result_semaine["salaire_brut_total"]
-                
+
                 # Additionner les heures supplémentaires
                 for sup in result_semaine["heures_supplementaires"]:
                     result["heures_supplementaires"].append(sup)
-                
+
                 # Garder le détail de la semaine
-                result["detail_semaines"].append({
-                    "semaine": semaine_num,
-                    "heures": heures_semaine,
-                    "salaire": result_semaine["salaire_brut_total"]
-                })
-        
+                result["detail_semaines"].append(
+                    {
+                        "semaine": semaine_num,
+                        "heures": heures_semaine,
+                        "salaire": result_semaine["salaire_brut_total"],
+                    }
+                )
+
         # Calculer le total des heures supplémentaires
         result["total_heures_supplementaires"] = sum(
             sup["heures"] for sup in result["heures_supplementaires"]
         )
-        
+
         return result
 
     def calculer_salaire_mensuel_legacy(self) -> Dict:
@@ -524,50 +535,50 @@ class FeuilleDHeures:
     def _regrouper_par_semaine(self) -> List[float]:
         """Regroupe les jours travaillés par semaine (lundi à dimanche)"""
         from datetime import datetime, timedelta
-        
+
         if not self.jours_travailles:
             return []
-        
+
         # Créer un dictionnaire des heures par date
         heures_par_date = {}
         for jour in self.jours_travailles:
             date_str = jour.date
             heures = jour.calculer_heures()
             heures_par_date[date_str] = heures
-        
+
         # Trouver la première et dernière date
         dates = sorted(heures_par_date.keys())
         if not dates:
             return []
-        
+
         premiere_date = datetime.strptime(dates[0], "%Y-%m-%d")
         derniere_date = datetime.strptime(dates[-1], "%Y-%m-%d")
-        
+
         # Trouver le lundi de la première semaine
         jours_depuis_lundi = premiere_date.weekday()  # 0=lundi, 6=dimanche
         debut_semaine = premiere_date - timedelta(days=jours_depuis_lundi)
-        
+
         # Calculer les heures par semaine
         semaines_heures = []
         date_courante = debut_semaine
-        
+
         while date_courante <= derniere_date:
             heures_semaine = 0
-            
+
             # Calculer les heures pour les 7 jours de la semaine
             for jour in range(7):
                 date_jour = date_courante + timedelta(days=jour)
                 date_str = date_jour.strftime("%Y-%m-%d")
-                
+
                 if date_str in heures_par_date:
                     heures_semaine += heures_par_date[date_str]
-            
+
             if heures_semaine > 0:  # Ne garder que les semaines avec des heures
                 semaines_heures.append(heures_semaine)
-            
+
             # Passer à la semaine suivante
             date_courante += timedelta(days=7)
-        
+
         return semaines_heures
 
     def save(self):
@@ -620,12 +631,12 @@ class FeuilleDHeures:
 
     def to_dict(self) -> Dict:
         calcul_salaire = self.calculer_salaire()
-        
+
         # Calcul du salaire net
         salaire_net_info = net_salary_calculator.calculer_salaire_net(
-            calcul_salaire['salaire_brut_total']
+            calcul_salaire["salaire_brut_total"]
         )
-        
+
         return {
             "id": self.id,
             "mois": self.mois,

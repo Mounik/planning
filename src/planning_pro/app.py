@@ -26,15 +26,9 @@ from .models import Planning, FeuilleDHeures, User
 from .database import db_manager
 from .config import Config
 from .security import (
-    SecurityValidator,
     validator,
     log_security_event,
-    require_json,
     rate_limit,
-    USER_REGISTRATION_SCHEMA,
-    USER_LOGIN_SCHEMA,
-    PLANNING_SCHEMA,
-    validate_json_data,
 )
 
 # Chemin vers le répertoire racine du projet

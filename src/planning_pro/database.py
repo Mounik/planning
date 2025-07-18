@@ -1,8 +1,7 @@
 import sqlite3
 import os
-from typing import Optional, List, Dict, Any
+from typing import List
 from contextlib import contextmanager
-from datetime import datetime
 
 
 class DatabaseManager:

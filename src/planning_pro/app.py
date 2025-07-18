@@ -8,8 +8,6 @@ from flask import (
     jsonify,
     current_app,
 )
-from werkzeug.wrappers import Response
-from flask import send_file
 from flask_login import (
     LoginManager,
     login_user,
@@ -24,7 +22,6 @@ import os
 import logging
 import traceback
 from datetime import datetime
-from typing import Union, Tuple
 from .models import Planning, FeuilleDHeures, User
 from .database import db_manager
 from .config import Config
@@ -208,7 +205,7 @@ def load_user(user_id):
 
 # Routes d'authentification
 @app.route("/login", methods=["GET", "POST"])
-def login() -> Union[Response, str]:
+def login():
     if request.method == "POST":
         email = request.form.get("email")
         password = request.form.get("password")
@@ -229,7 +226,7 @@ def login() -> Union[Response, str]:
 
 @app.route("/register", methods=["GET", "POST"])
 @rate_limit(max_requests=10, window_seconds=3600)  # Max 10 inscriptions par heure
-def register() -> Union[Response, str]:
+def register():
     if request.method == "POST":
         email = request.form.get("email", "").strip()
         password = request.form.get("password", "")
@@ -323,7 +320,7 @@ def register() -> Union[Response, str]:
 
 @app.route("/logout")
 @login_required
-def logout() -> Response:
+def logout():
     logout_user()
     flash("Vous avez été déconnecté", "info")
     return redirect(url_for("login"))
@@ -331,7 +328,7 @@ def logout() -> Response:
 
 # Routes de récupération de mot de passe
 @app.route("/forgot-password", methods=["GET", "POST"])
-def forgot_password() -> Union[Response, str]:
+def forgot_password():
     if request.method == "POST":
         email = request.form.get("email")
 
@@ -420,7 +417,7 @@ L'équipe Planning Pro
 
 
 @app.route("/reset-password/<token>", methods=["GET", "POST"])
-def reset_password(token: str) -> Union[Response, str]:
+def reset_password(token):
     user = User.get_by_reset_token(token)
     if not user:
         flash("Le lien de réinitialisation est invalide ou a expiré", "error")
@@ -455,7 +452,7 @@ def reset_password(token: str) -> Union[Response, str]:
 # Routes principales (protégées)
 @app.route("/")
 @login_required
-def index() -> str:
+def index():
     # Récupérer les plannings récents pour l'utilisateur connecté
     plannings = Planning.get_by_user(current_user.id)
     feuilles = FeuilleDHeures.get_by_user(current_user.id)
@@ -475,7 +472,7 @@ def index() -> str:
 
 @app.route("/planning", methods=["GET", "POST"])
 @login_required
-def planning() -> Union[Response, str]:
+def planning():
     if request.method == "POST":
         # Traitement du formulaire de création/modification de planning
         planning_id = request.form.get("planning_id")
@@ -593,7 +590,7 @@ def planning() -> Union[Response, str]:
 
 @app.route("/planning/<int:planning_id>/delete", methods=["POST"])
 @login_required
-def delete_planning(planning_id: int) -> Response:
+def delete_planning(planning_id):
     planning_obj = Planning.get_by_id(planning_id)
     if not planning_obj or planning_obj.user_id != current_user.id:
         flash("Planning non trouvé", "error")
@@ -608,7 +605,7 @@ def delete_planning(planning_id: int) -> Response:
 
 @app.route("/planning/<int:planning_id>/convert", methods=["POST"])
 @login_required
-def convert_planning(planning_id: int) -> Response:
+def convert_planning(planning_id):
     planning_obj = Planning.get_by_id(planning_id)
     if not planning_obj or planning_obj.user_id != current_user.id:
         flash("Planning non trouvé", "error")
@@ -632,7 +629,7 @@ def convert_planning(planning_id: int) -> Response:
 
 @app.route("/feuille-heures")
 @login_required
-def feuille_heures() -> str:
+def feuille_heures():
     feuilles = FeuilleDHeures.get_by_user(current_user.id)
 
     # Détail d'une feuille si spécifié
@@ -653,7 +650,7 @@ def feuille_heures() -> str:
 
 @app.route("/feuille-heures/<int:feuille_id>/delete", methods=["POST"])
 @login_required
-def delete_feuille_heures(feuille_id: int) -> Response:
+def delete_feuille_heures(feuille_id):
     feuille = FeuilleDHeures.get_by_id(feuille_id)
     if not feuille or feuille.user_id != current_user.id:
         flash("Feuille d'heures non trouvée", "error")
@@ -670,7 +667,7 @@ def delete_feuille_heures(feuille_id: int) -> Response:
 @app.route("/api/planning", methods=["GET", "POST"])
 @login_required
 @rate_limit(max_requests=100, window_seconds=3600)
-def api_planning() -> Union[Response, Tuple[Response, int]]:
+def api_planning():
 
     if request.method == "GET":
         # Récupérer tous les plannings de l'utilisateur
@@ -729,14 +726,11 @@ def api_planning() -> Union[Response, Tuple[Response, int]]:
                 500,
             )
 
-    # This should never be reached due to route method restrictions
-    return jsonify({"error": "Method not allowed"}), 405
-
 
 @app.route("/api/planning/<int:planning_id>", methods=["GET", "PUT", "DELETE"])
 @login_required
 @rate_limit(max_requests=200, window_seconds=3600)
-def api_planning_detail(planning_id: int) -> Union[Response, Tuple[Response, int]]:
+def api_planning_detail(planning_id):
 
     planning = Planning.get_by_id(planning_id)
     if not planning or planning.user_id != current_user.id:
@@ -821,14 +815,11 @@ def api_planning_detail(planning_id: int) -> Union[Response, Tuple[Response, int
                 500,
             )
 
-    # This should never be reached due to route method restrictions
-    return jsonify({"error": "Method not allowed"}), 405
-
 
 @app.route("/api/planning/<int:planning_id>/convert", methods=["POST"])
 @login_required
 @rate_limit(max_requests=50, window_seconds=3600)
-def api_planning_convert(planning_id: int) -> Union[Response, Tuple[Response, int]]:
+def api_planning_convert(planning_id):
 
     planning = Planning.get_by_id(planning_id)
     if not planning or planning.user_id != current_user.id:
@@ -859,7 +850,7 @@ def api_planning_convert(planning_id: int) -> Union[Response, Tuple[Response, in
 @app.route("/api/feuille-heures", methods=["GET"])
 @login_required
 @rate_limit(max_requests=200, window_seconds=3600)
-def api_feuille_heures() -> Response:
+def api_feuille_heures():
 
     feuilles = FeuilleDHeures.get_by_user(current_user.id)
     return jsonify([f.to_dict() for f in feuilles])
@@ -868,7 +859,7 @@ def api_feuille_heures() -> Response:
 @app.route("/api/contracts", methods=["GET"])
 @login_required
 @rate_limit(max_requests=100, window_seconds=3600)
-def api_contracts() -> Response:
+def api_contracts():
     """Retourne la liste des contrats de travail disponibles"""
     from .salary_calculator import salary_calculator
 
@@ -879,7 +870,7 @@ def api_contracts() -> Response:
 @app.route("/api/feuille-heures/<int:feuille_id>", methods=["GET", "DELETE"])
 @login_required
 @rate_limit(max_requests=200, window_seconds=3600)
-def api_feuille_heures_detail(feuille_id: int) -> Union[Response, Tuple[Response, int]]:
+def api_feuille_heures_detail(feuille_id):
 
     feuille = FeuilleDHeures.get_by_id(feuille_id)
     if not feuille or feuille.user_id != current_user.id:
@@ -914,58 +905,6 @@ def api_feuille_heures_detail(feuille_id: int) -> Union[Response, Tuple[Response
                 jsonify({"success": False, "error": "Erreur lors de la suppression"}),
                 500,
             )
-
-    # This should never be reached due to route method restrictions
-    return jsonify({"error": "Method not allowed"}), 405
-
-
-@app.route("/api/feuille-heures/<int:feuille_id>/pdf", methods=["GET"])
-@login_required
-@rate_limit(max_requests=20, window_seconds=3600)
-def api_feuille_heures_pdf(feuille_id: int) -> Union[Response, Tuple[Response, int]]:
-    """Génère un PDF pour une feuille d'heures"""
-    
-    feuille = FeuilleDHeures.get_by_id(feuille_id)
-    if not feuille or feuille.user_id != current_user.id:
-        log_security_event(
-            "API_PDF_UNAUTHORIZED",
-            f"Unauthorized PDF access to feuille {feuille_id}",
-            current_user.id,
-        )
-        return jsonify({"error": "Feuille d'heures non trouvée"}), 404
-    
-    try:
-        from .pdf_generator import pdf_generator
-        
-        # Récupérer les données de la feuille
-        feuille_data = feuille.to_dict()
-        
-        # Générer le PDF
-        pdf_buffer = pdf_generator.generer_pdf_feuille(feuille_data)
-        
-        # Nom du fichier
-        filename = f"feuille_heures_{feuille.mois}_{feuille.annee}.pdf"
-        
-        log_security_event(
-            "API_PDF_SUCCESS",
-            f"PDF generated for feuille {feuille_id}",
-            current_user.id,
-        )
-        
-        return send_file(
-            pdf_buffer,
-            as_attachment=True,
-            download_name=filename,
-            mimetype='application/pdf'
-        )
-        
-    except Exception as e:
-        log_security_event(
-            "API_PDF_ERROR",
-            f"PDF generation failed for feuille {feuille_id}: {str(e)}",
-            current_user.id,
-        )
-        return jsonify({"error": "Erreur lors de la génération du PDF"}), 500
 
 
 if __name__ == "__main__":

@@ -1,17 +1,19 @@
 [project]
-name = "planning"
-version = "0.1.0"
-description = "Estimation du salaire et des heures supplémentaires à l'aide de votre planning"
+name = "planning-pro"
+version = "1.0.0"
+description = "Gestionnaire d'heures - Application Flask pour la gestion des plannings et calcul des heures supplémentaires"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.9"
 dependencies = [
     "flask>=3.1.1",
-    "reportlab>=4.4.2",
     "flask-login>=0.6.3",
+    "flask-wtf>=1.2.1",
     "werkzeug>=3.0.0",
     "bcrypt>=4.0.1",
     "flask-mail>=0.9.1",
-    "itsdangerous>=2.1.2",
+    "gunicorn>=21.2.0",
+    "flask-talisman>=1.1.0",
+    "reportlab>=4.0.9",
 ]
 
 [dependency-groups]

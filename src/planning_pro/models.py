@@ -1,37 +1,15 @@
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
-import calendar
-import json
-import os
 import bcrypt
 import secrets
 from flask_login import UserMixin
-from itsdangerous import URLSafeTimedSerializer
 
-
-class DataStore:
-    """Simple file-based data storage"""
-
-    def __init__(self, filename: str):
-        self.filename = filename
-        self.data_dir = "data"
-        if not os.path.exists(self.data_dir):
-            os.makedirs(self.data_dir)
-        self.filepath = os.path.join(self.data_dir, filename)
-
-    def load(self) -> List[Dict]:
-        if os.path.exists(self.filepath):
-            with open(self.filepath, "r", encoding="utf-8") as f:
-                return json.load(f)
-        return []
-
-    def save(self, data: List[Dict]):
-        with open(self.filepath, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+from .database import db_manager
+from .net_salary_calculator import net_salary_calculator
 
 
 class User(UserMixin):
-    store = DataStore("users.json")
+    """Modèle User avec stockage SQLite"""
 
     def __init__(
         self,
@@ -41,7 +19,7 @@ class User(UserMixin):
         prenom: str,
         id: Optional[int] = None,
     ):
-        self.id = id or self._get_next_id()
+        self.id = id
         self.email = email.lower().strip()
         self.password_hash = self._hash_password(password) if password else None
         self.nom = nom.strip()
@@ -50,10 +28,6 @@ class User(UserMixin):
         self.active = True
         self.reset_token: Optional[str] = None
         self.reset_token_expiry: Optional[str] = None
-
-    def _get_next_id(self) -> int:
-        users = self.store.load()
-        return max([u.get("id", 0) for u in users], default=0) + 1
 
     def _hash_password(self, password: str) -> str:
         """Hache le mot de passe avec bcrypt"""
@@ -72,17 +46,39 @@ class User(UserMixin):
         return str(self.id)
 
     def save(self):
-        users = self.store.load()
-
-        # Mettre à jour ou ajouter
-        for i, u in enumerate(users):
-            if u.get("id") == self.id:
-                users[i] = self.to_dict()
-                break
+        """Sauvegarde l'utilisateur en base de données"""
+        if self.id:
+            # Mise à jour
+            db_manager.execute_update(
+                """UPDATE users SET email = ?, password_hash = ?, nom = ?, prenom = ?, 
+                   is_active = ?, reset_token = ?, reset_token_expiry = ? WHERE id = ?""",
+                (
+                    self.email,
+                    self.password_hash,
+                    self.nom,
+                    self.prenom,
+                    self.active,
+                    self.reset_token,
+                    self.reset_token_expiry,
+                    self.id,
+                ),
+            )
         else:
-            users.append(self.to_dict())
-
-        self.store.save(users)
+            # Création
+            self.id = db_manager.execute_insert(
+                """INSERT INTO users (email, password_hash, nom, prenom, created_at, is_active, 
+                   reset_token, reset_token_expiry) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    self.email,
+                    self.password_hash,
+                    self.nom,
+                    self.prenom,
+                    self.created_at,
+                    self.active,
+                    self.reset_token,
+                    self.reset_token_expiry,
+                ),
+            )
 
     def to_dict(self) -> Dict:
         return {
@@ -100,33 +96,34 @@ class User(UserMixin):
     @classmethod
     def get_by_email(cls, email: str) -> Optional["User"]:
         """Trouve un utilisateur par email"""
-        users_data = cls.store.load()
-        for u in users_data:
-            if u.get("email", "").lower() == email.lower().strip():
-                return cls.from_dict(u)
+        rows = db_manager.execute_query(
+            "SELECT * FROM users WHERE email = ?", (email.lower().strip(),)
+        )
+        if rows:
+            return cls.from_row(rows[0])
         return None
 
     @classmethod
     def get_by_id(cls, user_id: int) -> Optional["User"]:
         """Trouve un utilisateur par ID"""
-        users_data = cls.store.load()
-        for u in users_data:
-            if u.get("id") == user_id:
-                return cls.from_dict(u)
+        rows = db_manager.execute_query("SELECT * FROM users WHERE id = ?", (user_id,))
+        if rows:
+            return cls.from_row(rows[0])
         return None
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "User":
+    def from_row(cls, row) -> "User":
+        """Crée un utilisateur à partir d'une ligne de base de données"""
         user = cls.__new__(cls)
-        user.id = data["id"]
-        user.email = data["email"]
-        user.password_hash = data.get("password_hash")
-        user.nom = data["nom"]
-        user.prenom = data["prenom"]
-        user.created_at = data["created_at"]
-        user.active = data.get("is_active", True)
-        user.reset_token = data.get("reset_token")
-        user.reset_token_expiry = data.get("reset_token_expiry")
+        user.id = row["id"]
+        user.email = row["email"]
+        user.password_hash = row["password_hash"]
+        user.nom = row["nom"]
+        user.prenom = row["prenom"]
+        user.created_at = row["created_at"]
+        user.active = bool(row["is_active"])
+        user.reset_token = row["reset_token"]
+        user.reset_token_expiry = row["reset_token_expiry"]
         return user
 
     def generate_reset_token(self) -> str:
@@ -166,12 +163,13 @@ class User(UserMixin):
     @classmethod
     def get_by_reset_token(cls, token: str) -> Optional["User"]:
         """Trouve un utilisateur par token de réinitialisation"""
-        users_data = cls.store.load()
-        for u in users_data:
-            if u.get("reset_token") == token:
-                user = cls.from_dict(u)
-                if user.verify_reset_token(token):
-                    return user
+        rows = db_manager.execute_query(
+            "SELECT * FROM users WHERE reset_token = ?", (token,)
+        )
+        if rows:
+            user = cls.from_row(rows[0])
+            if user.verify_reset_token(token):
+                return user
         return None
 
     def __repr__(self):
@@ -179,6 +177,8 @@ class User(UserMixin):
 
 
 class CreneauTravail:
+    """Créneau de travail avec heures de début et fin"""
+
     def __init__(self, heure_debut: str, heure_fin: str):
         self.heure_debut = heure_debut
         self.heure_fin = heure_fin
@@ -200,6 +200,8 @@ class CreneauTravail:
 
 
 class JourTravaille:
+    """Jour de travail avec créneaux horaires"""
+
     def __init__(self, date: str, creneaux: Optional[List[CreneauTravail]] = None):
         self.date = date
         self.creneaux = creneaux if creneaux else []
@@ -209,7 +211,7 @@ class JourTravaille:
         self.creneaux.append(CreneauTravail(heure_debut, heure_fin))
 
     def calculer_heures(self) -> float:
-        """Calcule le nombre total d'heures travaillees dans la journee"""
+        """Calcule le nombre total d'heures travaillées dans la journée"""
         total = 0.0
         for creneau in self.creneaux:
             total += creneau.calculer_heures(self.date)
@@ -224,7 +226,7 @@ class JourTravaille:
 
 
 class Planning:
-    store = DataStore("plannings.json")
+    """Planning de travail avec stockage SQLite"""
 
     def __init__(
         self,
@@ -236,31 +238,62 @@ class Planning:
         heures_contractuelles: float = 35.0,
         id: Optional[int] = None,
     ):
-        self.id = id or self._get_next_id()
+        self.id = id
         self.mois = mois
         self.annee = annee
         self.jours_travail = jours_travail
         self.taux_horaire = taux_horaire
         self.user_id = user_id
-        self.heures_contractuelles = heures_contractuelles  # Heures par semaine
+        self.heures_contractuelles = heures_contractuelles
         self.created_at = datetime.now().isoformat()
 
-    def _get_next_id(self) -> int:
-        plannings = self.store.load()
-        return max([p.get("id", 0) for p in plannings], default=0) + 1
-
     def save(self):
-        plannings = self.store.load()
-
-        # Mettre � jour ou ajouter
-        for i, p in enumerate(plannings):
-            if p.get("id") == self.id:
-                plannings[i] = self.to_dict()
-                break
+        """Sauvegarde le planning en base de données"""
+        if self.id:
+            # Mise à jour
+            db_manager.execute_update(
+                """UPDATE plannings SET mois = ?, annee = ?, taux_horaire = ?, 
+                   heures_contractuelles = ? WHERE id = ?""",
+                (
+                    self.mois,
+                    self.annee,
+                    self.taux_horaire,
+                    self.heures_contractuelles,
+                    self.id,
+                ),
+            )
+            # Supprimer les anciens jours de travail
+            db_manager.execute_delete(
+                "DELETE FROM jours_travail WHERE planning_id = ?", (self.id,)
+            )
         else:
-            plannings.append(self.to_dict())
+            # Création
+            self.id = db_manager.execute_insert(
+                """INSERT INTO plannings (mois, annee, taux_horaire, user_id, 
+                   heures_contractuelles, created_at) VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    self.mois,
+                    self.annee,
+                    self.taux_horaire,
+                    self.user_id,
+                    self.heures_contractuelles,
+                    self.created_at,
+                ),
+            )
 
-        self.store.save(plannings)
+        # Sauvegarder les jours de travail
+        for jour in self.jours_travail:
+            jour_id = db_manager.execute_insert(
+                "INSERT INTO jours_travail (planning_id, date) VALUES (?, ?)",
+                (self.id, jour["date"]),
+            )
+
+            # Sauvegarder les créneaux
+            for creneau in jour.get("creneaux", []):
+                db_manager.execute_insert(
+                    "INSERT INTO creneaux_travail (jour_travail_id, heure_debut, heure_fin) VALUES (?, ?, ?)",
+                    (jour_id, creneau["heure_debut"], creneau["heure_fin"]),
+                )
 
     def to_dict(self) -> Dict:
         return {
@@ -274,22 +307,82 @@ class Planning:
             "created_at": self.created_at,
         }
 
-    def to_feuille_heures(self) -> "FeuilleDHeures":
-        """Convertit le planning en feuille d'heures (écrase si existante)"""
-        jours_travailles = []
+    @classmethod
+    def get_all(cls) -> List["Planning"]:
+        """Récupère tous les plannings"""
+        rows = db_manager.execute_query(
+            "SELECT * FROM plannings ORDER BY annee DESC, mois DESC"
+        )
+        return [cls.from_row(row) for row in rows]
 
+    @classmethod
+    def get_by_user(cls, user_id: int) -> List["Planning"]:
+        """Récupère tous les plannings d'un utilisateur"""
+        rows = db_manager.execute_query(
+            "SELECT * FROM plannings WHERE user_id = ? ORDER BY annee DESC, mois DESC",
+            (user_id,),
+        )
+        return [cls.from_row(row) for row in rows]
+
+    @classmethod
+    def get_by_id(cls, planning_id: int) -> Optional["Planning"]:
+        """Récupère un planning par ID"""
+        rows = db_manager.execute_query(
+            "SELECT * FROM plannings WHERE id = ?", (planning_id,)
+        )
+        if rows:
+            return cls.from_row(rows[0])
+        return None
+
+    @classmethod
+    def from_row(cls, row) -> "Planning":
+        """Crée un planning à partir d'une ligne de base de données"""
+        # Récupérer les jours de travail
+        jours_rows = db_manager.execute_query(
+            "SELECT * FROM jours_travail WHERE planning_id = ?", (row["id"],)
+        )
+
+        jours_travail = []
+        for jour_row in jours_rows:
+            # Récupérer les créneaux pour ce jour
+            creneaux_rows = db_manager.execute_query(
+                "SELECT * FROM creneaux_travail WHERE jour_travail_id = ?",
+                (jour_row["id"],),
+            )
+
+            creneaux = [
+                {
+                    "heure_debut": creneau["heure_debut"],
+                    "heure_fin": creneau["heure_fin"],
+                }
+                for creneau in creneaux_rows
+            ]
+
+            jours_travail.append({"date": jour_row["date"], "creneaux": creneaux})
+
+        return cls(
+            id=row["id"],
+            mois=row["mois"],
+            annee=row["annee"],
+            jours_travail=jours_travail,
+            taux_horaire=row["taux_horaire"],
+            user_id=row["user_id"],
+            heures_contractuelles=row["heures_contractuelles"],
+        )
+
+    def to_feuille_heures(self) -> "FeuilleDHeures":
+        """Convertit le planning en feuille d'heures"""
+
+        jours_travailles = []
         for jour in self.jours_travail:
             jour_travaille = JourTravaille(date=jour["date"])
-
-            # Ajouter les créneaux de travail
             for creneau in jour.get("creneaux", []):
                 jour_travaille.ajouter_creneau(
                     creneau["heure_debut"], creneau["heure_fin"]
                 )
-
             jours_travailles.append(jour_travaille)
 
-        # Vérifier si une feuille d'heures existe déjà pour ce mois/année et cet utilisateur
+        # Vérifier si une feuille d'heures existe déjà
         feuille_existante = FeuilleDHeures.get_by_mois_annee_user(
             self.mois, self.annee, self.user_id
         )
@@ -314,42 +407,9 @@ class Planning:
             feuille.save()
             return feuille
 
-    @classmethod
-    def get_all(cls) -> List["Planning"]:
-        plannings_data = cls.store.load()
-        return [cls.from_dict(p) for p in plannings_data]
-
-    @classmethod
-    def get_by_user(cls, user_id: int) -> List["Planning"]:
-        """Récupère tous les plannings d'un utilisateur"""
-        plannings_data = cls.store.load()
-        return [cls.from_dict(p) for p in plannings_data if p.get("user_id") == user_id]
-
-    @classmethod
-    def get_by_id(cls, id: int) -> Optional["Planning"]:
-        plannings_data = cls.store.load()
-        for p in plannings_data:
-            if p.get("id") == id:
-                return cls.from_dict(p)
-        return None
-
-    @classmethod
-    def from_dict(cls, data: Dict) -> "Planning":
-        return cls(
-            id=data["id"],
-            mois=data["mois"],
-            annee=data["annee"],
-            jours_travail=data["jours_travail"],
-            taux_horaire=data["taux_horaire"],
-            user_id=data.get("user_id", 1),  # Compatibilité avec anciens plannings
-            heures_contractuelles=data.get(
-                "heures_contractuelles", 35.0
-            ),  # Compatibilité avec anciens plannings
-        )
-
 
 class FeuilleDHeures:
-    store = DataStore("feuilles_heures.json")
+    """Feuille d'heures avec stockage SQLite"""
 
     def __init__(
         self,
@@ -361,7 +421,7 @@ class FeuilleDHeures:
         heures_contractuelles: float = 35.0,
         id: Optional[int] = None,
     ):
-        self.id = id or self._get_next_id()
+        self.id = id
         self.mois = mois
         self.annee = annee
         self.jours_travailles = jours_travailles
@@ -370,75 +430,202 @@ class FeuilleDHeures:
         self.heures_contractuelles = heures_contractuelles
         self.created_at = datetime.now().isoformat()
 
-    def _get_next_id(self) -> int:
-        feuilles = self.store.load()
-        return max([f.get("id", 0) for f in feuilles], default=0) + 1
-
     def calculer_total_heures(self) -> float:
-        """Calcule le total des heures travaillees"""
+        """Calcule le total des heures travaillées"""
         return sum(jour.calculer_heures() for jour in self.jours_travailles)
 
     def calculer_heures_supplementaires(self) -> Dict:
-        """Calcule les heures supplementaires"""
-        from .config import Config
+        """Calcule les heures supplémentaires (méthode legacy)"""
+        from .salary_calculator import salary_calculator
 
         total_heures = self.calculer_total_heures()
-        heures_normales_mois = Config.calculer_heures_normales_mois(
-            self.heures_contractuelles
-        )
-
-        if total_heures > heures_normales_mois:
-            heures_sup = total_heures - heures_normales_mois
-            return {
-                "heures_normales": heures_normales_mois,
-                "heures_supplementaires": heures_sup,
-                "total_heures": total_heures,
-            }
-        else:
-            return {
-                "heures_normales": total_heures,
-                "heures_supplementaires": 0,
-                "total_heures": total_heures,
-            }
-
-    def calculer_salaire(self) -> Dict:
-        """Calcule le salaire brut estime"""
-        from .config import Config
-
-        heures_detail = self.calculer_heures_supplementaires()
-
-        salaire_normal = heures_detail["heures_normales"] * self.taux_horaire
-        salaire_sup = (
-            heures_detail["heures_supplementaires"]
-            * self.taux_horaire
-            * Config.TAUX_MAJORATION_HEURES_SUP
+        result = salary_calculator.calculate_salary(
+            total_heures, self.heures_contractuelles, self.taux_horaire
         )
 
         return {
-            "heures_normales": heures_detail["heures_normales"],
-            "heures_supplementaires": heures_detail["heures_supplementaires"],
-            "total_heures": heures_detail["total_heures"],
-            "heures_contractuelles": self.heures_contractuelles,
-            "taux_horaire": self.taux_horaire,
-            "salaire_normal": salaire_normal,
-            "salaire_supplementaire": salaire_sup,
-            "salaire_brut_total": salaire_normal + salaire_sup,
+            "heures_normales": result["heures_normales"],
+            "heures_supplementaires": result["total_heures_supplementaires"],
+            "total_heures": total_heures,
         }
 
+    def calculer_salaire(self) -> Dict:
+        """Calcule le salaire brut estimé avec le système hebdomadaire correct"""
+        from .salary_calculator import salary_calculator
+        from datetime import datetime, timedelta
+        
+        # Calculer le salaire semaine par semaine
+        semaines_heures = self._regrouper_par_semaine()
+        
+        # Initialiser les totaux
+        result = {
+            "contrat": f"{self.heures_contractuelles}h",
+            "heures_contractuelles": self.heures_contractuelles,
+            "total_heures": self.calculer_total_heures(),
+            "taux_horaire": self.taux_horaire,
+            "heures_normales": 0,
+            "heures_complementaires": 0,
+            "heures_complementaires_majorees": 0,
+            "heures_supplementaires": [],
+            "salaire_normal": 0,
+            "salaire_complementaire": 0,
+            "salaire_complementaire_majore": 0,
+            "salaire_supplementaire": 0,
+            "salaire_brut_total": 0,
+            "detail_supplementaires": [],
+            "nb_semaines_calculees": len(semaines_heures),
+            "detail_semaines": []
+        }
+        
+        # Calculer chaque semaine
+        for semaine_num, heures_semaine in enumerate(semaines_heures, 1):
+            if heures_semaine > 0:
+                result_semaine = salary_calculator.calculate_salary(
+                    heures_semaine, self.heures_contractuelles, self.taux_horaire
+                )
+                
+                # Additionner aux totaux
+                result["heures_normales"] += result_semaine["heures_normales"]
+                result["heures_complementaires"] += result_semaine["heures_complementaires"]
+                result["heures_complementaires_majorees"] += result_semaine["heures_complementaires_majorees"]
+                result["salaire_normal"] += result_semaine["salaire_normal"]
+                result["salaire_complementaire"] += result_semaine["salaire_complementaire"]
+                result["salaire_complementaire_majore"] += result_semaine["salaire_complementaire_majore"]
+                result["salaire_supplementaire"] += result_semaine["salaire_supplementaire"]
+                result["salaire_brut_total"] += result_semaine["salaire_brut_total"]
+                
+                # Additionner les heures supplémentaires
+                for sup in result_semaine["heures_supplementaires"]:
+                    result["heures_supplementaires"].append(sup)
+                
+                # Garder le détail de la semaine
+                result["detail_semaines"].append({
+                    "semaine": semaine_num,
+                    "heures": heures_semaine,
+                    "salaire": result_semaine["salaire_brut_total"]
+                })
+        
+        # Calculer le total des heures supplémentaires
+        result["total_heures_supplementaires"] = sum(
+            sup["heures"] for sup in result["heures_supplementaires"]
+        )
+        
+        return result
+
+    def calculer_salaire_mensuel_legacy(self) -> Dict:
+        """Ancienne méthode de calcul mensuel (pour compatibilité)"""
+        from .salary_calculator import salary_calculator
+
+        total_heures = self.calculer_total_heures()
+        return salary_calculator.calculate_salary(
+            total_heures, self.heures_contractuelles, self.taux_horaire
+        )
+
+    def _regrouper_par_semaine(self) -> List[float]:
+        """Regroupe les jours travaillés par semaine (lundi à dimanche)"""
+        from datetime import datetime, timedelta
+        
+        if not self.jours_travailles:
+            return []
+        
+        # Créer un dictionnaire des heures par date
+        heures_par_date = {}
+        for jour in self.jours_travailles:
+            date_str = jour.date
+            heures = jour.calculer_heures()
+            heures_par_date[date_str] = heures
+        
+        # Trouver la première et dernière date
+        dates = sorted(heures_par_date.keys())
+        if not dates:
+            return []
+        
+        premiere_date = datetime.strptime(dates[0], "%Y-%m-%d")
+        derniere_date = datetime.strptime(dates[-1], "%Y-%m-%d")
+        
+        # Trouver le lundi de la première semaine
+        jours_depuis_lundi = premiere_date.weekday()  # 0=lundi, 6=dimanche
+        debut_semaine = premiere_date - timedelta(days=jours_depuis_lundi)
+        
+        # Calculer les heures par semaine
+        semaines_heures = []
+        date_courante = debut_semaine
+        
+        while date_courante <= derniere_date:
+            heures_semaine = 0
+            
+            # Calculer les heures pour les 7 jours de la semaine
+            for jour in range(7):
+                date_jour = date_courante + timedelta(days=jour)
+                date_str = date_jour.strftime("%Y-%m-%d")
+                
+                if date_str in heures_par_date:
+                    heures_semaine += heures_par_date[date_str]
+            
+            if heures_semaine > 0:  # Ne garder que les semaines avec des heures
+                semaines_heures.append(heures_semaine)
+            
+            # Passer à la semaine suivante
+            date_courante += timedelta(days=7)
+        
+        return semaines_heures
+
     def save(self):
-        feuilles = self.store.load()
-
-        # Mettre � jour ou ajouter
-        for i, f in enumerate(feuilles):
-            if f.get("id") == self.id:
-                feuilles[i] = self.to_dict()
-                break
+        """Sauvegarde la feuille d'heures en base de données"""
+        if self.id:
+            # Mise à jour
+            db_manager.execute_update(
+                """UPDATE feuilles_heures SET mois = ?, annee = ?, taux_horaire = ?, 
+                   heures_contractuelles = ? WHERE id = ?""",
+                (
+                    self.mois,
+                    self.annee,
+                    self.taux_horaire,
+                    self.heures_contractuelles,
+                    self.id,
+                ),
+            )
+            # Supprimer les anciens jours travaillés
+            db_manager.execute_delete(
+                "DELETE FROM jours_travailles WHERE feuille_heures_id = ?", (self.id,)
+            )
         else:
-            feuilles.append(self.to_dict())
+            # Création
+            self.id = db_manager.execute_insert(
+                """INSERT INTO feuilles_heures (mois, annee, taux_horaire, user_id, 
+                   heures_contractuelles, created_at) VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    self.mois,
+                    self.annee,
+                    self.taux_horaire,
+                    self.user_id,
+                    self.heures_contractuelles,
+                    self.created_at,
+                ),
+            )
 
-        self.store.save(feuilles)
+        # Sauvegarder les jours travaillés
+        for jour in self.jours_travailles:
+            jour_id = db_manager.execute_insert(
+                "INSERT INTO jours_travailles (feuille_heures_id, date) VALUES (?, ?)",
+                (self.id, jour.date),
+            )
+
+            # Sauvegarder les créneaux
+            for creneau in jour.creneaux:
+                db_manager.execute_insert(
+                    "INSERT INTO creneaux_feuille (jour_travaille_id, heure_debut, heure_fin) VALUES (?, ?, ?)",
+                    (jour_id, creneau.heure_debut, creneau.heure_fin),
+                )
 
     def to_dict(self) -> Dict:
+        calcul_salaire = self.calculer_salaire()
+        
+        # Calcul du salaire net
+        salaire_net_info = net_salary_calculator.calculer_salaire_net(
+            calcul_salaire['salaire_brut_total']
+        )
+        
         return {
             "id": self.id,
             "mois": self.mois,
@@ -449,74 +636,79 @@ class FeuilleDHeures:
             "heures_contractuelles": self.heures_contractuelles,
             "created_at": self.created_at,
             "total_heures": self.calculer_total_heures(),
-            "calcul_salaire": self.calculer_salaire(),
+            "calcul_salaire": calcul_salaire,
+            "salaire_net": salaire_net_info,
         }
 
     @classmethod
     def get_all(cls) -> List["FeuilleDHeures"]:
-        feuilles_data = cls.store.load()
-        return [cls.from_dict(f) for f in feuilles_data]
+        """Récupère toutes les feuilles d'heures"""
+        rows = db_manager.execute_query(
+            "SELECT * FROM feuilles_heures ORDER BY annee DESC, mois DESC"
+        )
+        return [cls.from_row(row) for row in rows]
 
     @classmethod
     def get_by_user(cls, user_id: int) -> List["FeuilleDHeures"]:
         """Récupère toutes les feuilles d'heures d'un utilisateur"""
-        feuilles_data = cls.store.load()
-        return [cls.from_dict(f) for f in feuilles_data if f.get("user_id") == user_id]
+        rows = db_manager.execute_query(
+            "SELECT * FROM feuilles_heures WHERE user_id = ? ORDER BY annee DESC, mois DESC",
+            (user_id,),
+        )
+        return [cls.from_row(row) for row in rows]
 
     @classmethod
-    def get_by_id(cls, id: int) -> Optional["FeuilleDHeures"]:
-        feuilles_data = cls.store.load()
-        for f in feuilles_data:
-            if f.get("id") == id:
-                return cls.from_dict(f)
-        return None
-
-    @classmethod
-    def get_by_mois_annee(cls, mois: int, annee: int) -> Optional["FeuilleDHeures"]:
-        """Trouve une feuille d'heures existante pour un mois/année donné (compatibilité)"""
-        feuilles_data = cls.store.load()
-        for f in feuilles_data:
-            if f.get("mois") == mois and f.get("annee") == annee:
-                return cls.from_dict(f)
+    def get_by_id(cls, feuille_id: int) -> Optional["FeuilleDHeures"]:
+        """Récupère une feuille d'heures par ID"""
+        rows = db_manager.execute_query(
+            "SELECT * FROM feuilles_heures WHERE id = ?", (feuille_id,)
+        )
+        if rows:
+            return cls.from_row(rows[0])
         return None
 
     @classmethod
     def get_by_mois_annee_user(
         cls, mois: int, annee: int, user_id: int
     ) -> Optional["FeuilleDHeures"]:
-        """Trouve une feuille d'heures existante pour un mois/année/utilisateur donné"""
-        feuilles_data = cls.store.load()
-        for f in feuilles_data:
-            if (
-                f.get("mois") == mois
-                and f.get("annee") == annee
-                and f.get("user_id") == user_id
-            ):
-                return cls.from_dict(f)
+        """Trouve une feuille d'heures pour un mois/année/utilisateur donné"""
+        rows = db_manager.execute_query(
+            "SELECT * FROM feuilles_heures WHERE mois = ? AND annee = ? AND user_id = ?",
+            (mois, annee, user_id),
+        )
+        if rows:
+            return cls.from_row(rows[0])
         return None
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "FeuilleDHeures":
-        jours_travailles = []
-        for jour_data in data["jours_travailles"]:
-            jour = JourTravaille(date=jour_data["date"])
+    def from_row(cls, row) -> "FeuilleDHeures":
+        """Crée une feuille d'heures à partir d'une ligne de base de données"""
+        # Récupérer les jours travaillés
+        jours_rows = db_manager.execute_query(
+            "SELECT * FROM jours_travailles WHERE feuille_heures_id = ?", (row["id"],)
+        )
 
-            # Charger les créneaux de travail
-            for creneau_data in jour_data.get("creneaux", []):
-                jour.ajouter_creneau(
-                    creneau_data["heure_debut"], creneau_data["heure_fin"]
-                )
+        jours_travailles = []
+        for jour_row in jours_rows:
+            jour = JourTravaille(date=jour_row["date"])
+
+            # Récupérer les créneaux pour ce jour
+            creneaux_rows = db_manager.execute_query(
+                "SELECT * FROM creneaux_feuille WHERE jour_travaille_id = ?",
+                (jour_row["id"],),
+            )
+
+            for creneau in creneaux_rows:
+                jour.ajouter_creneau(creneau["heure_debut"], creneau["heure_fin"])
 
             jours_travailles.append(jour)
 
         return cls(
-            id=data["id"],
-            mois=data["mois"],
-            annee=data["annee"],
+            id=row["id"],
+            mois=row["mois"],
+            annee=row["annee"],
             jours_travailles=jours_travailles,
-            taux_horaire=data["taux_horaire"],
-            user_id=data.get("user_id", 1),  # Compatibilité avec anciennes feuilles
-            heures_contractuelles=data.get(
-                "heures_contractuelles", 35.0
-            ),  # Compatibilité avec anciennes feuilles
+            taux_horaire=row["taux_horaire"],
+            user_id=row["user_id"],
+            heures_contractuelles=row["heures_contractuelles"],
         )

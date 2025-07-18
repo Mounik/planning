@@ -2,6 +2,98 @@
 
 {% block title %}Feuille d'Heures - Gestionnaire d'Heures{% endblock %}
 
+{% block head %}
+<style>
+/* Styles pour l'impression */
+@media print {
+    body { font-size: 12px; }
+    .modal-header .btn-close,
+    .modal-footer,
+    .navbar,
+    .btn,
+    .no-print { display: none !important; }
+    
+    .modal-dialog {
+        max-width: 100% !important;
+        margin: 0 !important;
+    }
+    
+    .modal-content {
+        border: none !important;
+        box-shadow: none !important;
+    }
+    
+    .modal-body {
+        padding: 0 !important;
+    }
+    
+    .table {
+        page-break-inside: avoid;
+    }
+    
+    .card {
+        border: 1px solid #000 !important;
+        page-break-inside: avoid;
+    }
+    
+    .card-body {
+        padding: 10px !important;
+    }
+    
+    h1, h2, h3, h4, h5, h6 {
+        page-break-after: avoid;
+    }
+    
+    .page-break {
+        page-break-before: always;
+    }
+}
+
+/* Styles pour l'export PDF */
+.pdf-content {
+    background: white;
+    padding: 20px;
+    font-family: Arial, sans-serif;
+}
+
+.pdf-header {
+    text-align: center;
+    margin-bottom: 30px;
+    border-bottom: 2px solid #000;
+    padding-bottom: 15px;
+}
+
+.pdf-section {
+    margin-bottom: 20px;
+}
+
+.pdf-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 20px;
+}
+
+.pdf-table th,
+.pdf-table td {
+    border: 1px solid #000;
+    padding: 8px;
+    text-align: left;
+}
+
+.pdf-table th {
+    background-color: #f0f0f0;
+    font-weight: bold;
+}
+
+.pdf-summary {
+    background-color: #f8f9fa;
+    padding: 15px;
+    border: 1px solid #000;
+    margin-top: 20px;
+}
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="row">
     <div class="col-md-12">
@@ -40,6 +132,14 @@
                 </div>
             </div>
             <div class="modal-footer">
+                <button type="button" class="btn btn-primary" onclick="imprimerFeuille()" 
+                        title="Imprimer la feuille d'heures">
+                    <i class="fas fa-print"></i> Imprimer
+                </button>
+                <button type="button" class="btn btn-success" onclick="exporterPDF()" 
+                        title="Télécharger en PDF">
+                    <i class="fas fa-download"></i> Export PDF
+                </button>
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fermer</button>
             </div>
         </div>
@@ -51,7 +151,7 @@
 <script>
 function chargerFeuilles() {
     const container = document.getElementById('feuillesListe');
-    
+
     fetch('/api/feuille-heures')
     .then(response => response.json())
     .then(feuilles => {
@@ -59,15 +159,15 @@ function chargerFeuilles() {
             container.innerHTML = '<p class="text-muted">Aucune feuille d\'heures disponible. Créez d\'abord un planning et convertissez-le en feuille d\'heures.</p>';
             return;
         }
-        
-        const moisNoms = ['', 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 
+
+        const moisNoms = ['', 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
                          'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
-        
+
         let html = '<div class="row">';
-        
+
         feuilles.forEach(feuille => {
             const salaireBrut = feuille.calcul_salaire ? feuille.calcul_salaire.salaire_brut_total : 0;
-            
+
             html += `
                 <div class="col-md-6 mb-3">
                     <div class="card">
@@ -98,7 +198,7 @@ function chargerFeuilles() {
                 </div>
             `;
         });
-        
+
         html += '</div>';
         container.innerHTML = html;
     })
@@ -108,27 +208,11 @@ function chargerFeuilles() {
     });
 }
 
-function voirDetail(feuilleId) {
-    fetch(`/api/feuille-heures/${feuilleId}`)
-    .then(response => response.json())
-    .then(data => {
-        if (data.error) {
-            alert('Erreur: ' + data.error);
-            return;
-        }
-        
-        afficherDetailFeuille(data);
-    })
-    .catch(error => {
-        console.error('Erreur:', error);
-        alert('Erreur lors du chargement du détail de la feuille d\'heures');
-    });
-}
 
 function afficherDetailFeuille(feuille) {
-    const moisNoms = ['', 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 
+    const moisNoms = ['', 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
                      'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
-    
+
     let html = `
         <div class="mb-4">
             <h4>${moisNoms[feuille.mois]} ${feuille.annee}</h4>
@@ -137,7 +221,7 @@ function afficherDetailFeuille(feuille) {
                 Heures contractuelles: ${feuille.heures_contractuelles || 35}h/semaine
             </p>
         </div>
-        
+
         <div class="row mb-4">
             <div class="col-md-6">
                 <div class="card bg-light">
@@ -149,10 +233,45 @@ function afficherDetailFeuille(feuille) {
                                 <div class="fw-bold">${feuille.calcul_salaire.heures_normales}h</div>
                             </div>
                             <div class="col-6">
-                                <small class="text-muted">Heures supplémentaires</small>
-                                <div class="fw-bold text-warning">${feuille.calcul_salaire.heures_supplementaires}h</div>
+                                <small class="text-muted">Salaire normal</small>
+                                <div class="fw-bold">${feuille.calcul_salaire.salaire_normal.toFixed(2)}€</div>
                             </div>
                         </div>
+
+                        ${feuille.calcul_salaire.heures_complementaires > 0 ? `
+                        <div class="row mt-2">
+                            <div class="col-6">
+                                <small class="text-muted">Heures complémentaires</small>
+                                <div class="fw-bold text-info">${feuille.calcul_salaire.heures_complementaires}h</div>
+                            </div>
+                            <div class="col-6">
+                                <small class="text-muted">Salaire complémentaire</small>
+                                <div class="fw-bold text-info">${feuille.calcul_salaire.salaire_complementaire.toFixed(2)}€</div>
+                            </div>
+                        </div>` : ''}
+
+                        ${feuille.calcul_salaire.heures_complementaires_majorees > 0 ? `
+                        <div class="row mt-1">
+                            <div class="col-6">
+                                <small class="text-muted">Complémentaires majorées</small>
+                                <div class="fw-bold text-warning">${feuille.calcul_salaire.heures_complementaires_majorees}h</div>
+                            </div>
+                            <div class="col-6">
+                                <small class="text-muted">Salaire majoré</small>
+                                <div class="fw-bold text-warning">${feuille.calcul_salaire.salaire_complementaire_majore.toFixed(2)}€</div>
+                            </div>
+                        </div>` : ''}
+
+                        ${feuille.calcul_salaire.heures_supplementaires && feuille.calcul_salaire.heures_supplementaires.length > 0 ? `
+                        <div class="mt-2">
+                            <small class="text-muted">Heures supplémentaires</small>
+                            ${feuille.calcul_salaire.heures_supplementaires.map(sup => `
+                                <div class="d-flex justify-content-between">
+                                    <span>${sup.heures}h à +${sup.majoration}%</span>
+                                    <span class="fw-bold text-danger">${sup.salaire.toFixed(2)}€</span>
+                                </div>
+                            `).join('')}
+                        </div>` : ''}
                         <hr>
                         <div class="text-center">
                             <small class="text-muted">Total</small>
@@ -161,7 +280,7 @@ function afficherDetailFeuille(feuille) {
                     </div>
                 </div>
             </div>
-            
+
             <div class="col-md-6">
                 <div class="card bg-light">
                     <div class="card-body">
@@ -179,11 +298,27 @@ function afficherDetailFeuille(feuille) {
                             <span>Total brut:</span>
                             <span class="text-success">${feuille.calcul_salaire.salaire_brut_total.toFixed(2)}€</span>
                         </div>
+                        <div class="d-flex justify-content-between text-muted">
+                            <span>Cotisations sociales:</span>
+                            <span>-${feuille.salaire_net.cotisations_sociales.toFixed(2)}€</span>
+                        </div>
+                        <div class="d-flex justify-content-between text-muted">
+                            <span>Impôt sur le revenu:</span>
+                            <span>-${feuille.salaire_net.impot_mensuel.toFixed(2)}€</span>
+                        </div>
+                        <hr>
+                        <div class="d-flex justify-content-between fw-bold fs-5">
+                            <span>Total net estimé:</span>
+                            <span class="text-primary">${feuille.salaire_net.salaire_net_final.toFixed(2)}€</span>
+                        </div>
+                        <small class="text-muted">
+                            <i class="fas fa-info-circle"></i> Estimation approximative
+                        </small>
                     </div>
                 </div>
             </div>
         </div>
-        
+
         <div class="mb-4">
             <h6>Détail des Jours Travaillés</h6>
             <div class="table-responsive">
@@ -197,22 +332,22 @@ function afficherDetailFeuille(feuille) {
                     </thead>
                     <tbody>
     `;
-    
+
     feuille.jours_travailles.forEach(jour => {
         const date = new Date(jour.date);
-        const dateFormatee = date.toLocaleDateString('fr-FR', { 
-            weekday: 'short', 
-            day: 'numeric', 
-            month: 'short' 
+        const dateFormatee = date.toLocaleDateString('fr-FR', {
+            weekday: 'short',
+            day: 'numeric',
+            month: 'short'
         });
-        
+
         let creneauxHtml = '';
         if (jour.creneaux && jour.creneaux.length > 0) {
-            creneauxHtml = jour.creneaux.map(creneau => 
+            creneauxHtml = jour.creneaux.map(creneau =>
                 `<span class="badge bg-secondary me-1">${creneau.heure_debut} - ${creneau.heure_fin}</span>`
             ).join('<br>');
         }
-        
+
         html += `
             <tr>
                 <td>${dateFormatee}</td>
@@ -221,19 +356,212 @@ function afficherDetailFeuille(feuille) {
             </tr>
         `;
     });
-    
+
     html += `
                     </tbody>
                 </table>
             </div>
         </div>
     `;
-    
+
     document.getElementById('feuilleDetail').innerHTML = html;
-    
+
     // Afficher le modal
     const modal = new bootstrap.Modal(document.getElementById('feuilleModal'));
     modal.show();
+}
+
+// Variables globales pour l'export
+let feuilleActuelle = null;
+
+// Fonction d'impression
+function imprimerFeuille() {
+    // Masquer les boutons avant l'impression
+    document.querySelectorAll('.modal-footer .btn').forEach(btn => {
+        btn.style.display = 'none';
+    });
+    
+    // Imprimer
+    window.print();
+    
+    // Restaurer les boutons après l'impression
+    setTimeout(() => {
+        document.querySelectorAll('.modal-footer .btn').forEach(btn => {
+            btn.style.display = '';
+        });
+    }, 1000);
+}
+
+// Fonction d'export PDF
+function exporterPDF() {
+    if (!feuilleActuelle) {
+        alert('Aucune feuille sélectionnée pour l\'export');
+        return;
+    }
+    
+    // Afficher un indicateur de chargement
+    const btnExport = document.querySelector('[onclick="exporterPDF()"]');
+    const texteOriginal = btnExport.innerHTML;
+    btnExport.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Génération...';
+    btnExport.disabled = true;
+    
+    // Utiliser l'API pour générer le PDF
+    const url = `/api/feuille-heures/${feuilleActuelle.id}/pdf`;
+    
+    fetch(url, {
+        method: 'GET',
+        headers: {
+            'X-CSRFToken': window.csrf_token
+        }
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Erreur lors de la génération du PDF');
+        }
+        return response.blob();
+    })
+    .then(blob => {
+        // Créer un lien de téléchargement
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `feuille_heures_${feuilleActuelle.mois}_${feuilleActuelle.annee}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        
+        // Restaurer le bouton
+        btnExport.innerHTML = texteOriginal;
+        btnExport.disabled = false;
+    })
+    .catch(error => {
+        console.error('Erreur:', error);
+        alert('Erreur lors de la génération du PDF');
+        
+        // Restaurer le bouton
+        btnExport.innerHTML = texteOriginal;
+        btnExport.disabled = false;
+    });
+}
+
+// Générer le contenu formaté pour PDF
+function genererContenuPDF(feuille) {
+    const moisNoms = ['', 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
+                     'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+    
+    let html = `
+        <div class="pdf-header">
+            <h1>FEUILLE D'HEURES</h1>
+            <h2>${moisNoms[feuille.mois]} ${feuille.annee}</h2>
+        </div>
+        
+        <div class="pdf-section">
+            <h3>Informations du contrat</h3>
+            <p><strong>Taux horaire:</strong> ${feuille.taux_horaire}€/h</p>
+            <p><strong>Heures contractuelles:</strong> ${feuille.heures_contractuelles || 35}h/semaine</p>
+            <p><strong>Total heures travaillées:</strong> ${feuille.total_heures}h</p>
+        </div>
+        
+        <div class="pdf-section">
+            <h3>Détail des jours travaillés</h3>
+            <table class="pdf-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Créneaux</th>
+                        <th>Heures</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+    
+    feuille.jours_travailles.forEach(jour => {
+        const date = new Date(jour.date);
+        const dateFormatee = date.toLocaleDateString('fr-FR', {
+            weekday: 'long',
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric'
+        });
+        
+        let creneauxHtml = '';
+        if (jour.creneaux && jour.creneaux.length > 0) {
+            creneauxHtml = jour.creneaux.map(creneau =>
+                `${creneau.heure_debut} - ${creneau.heure_fin}`
+            ).join('<br>');
+        }
+        
+        html += `
+            <tr>
+                <td>${dateFormatee}</td>
+                <td>${creneauxHtml}</td>
+                <td>${jour.heures}h</td>
+            </tr>
+        `;
+    });
+    
+    html += `
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="pdf-summary">
+            <h3>Récapitulatif salarial</h3>
+            <div class="row">
+                <div class="col-6">
+                    <p><strong>Heures normales:</strong> ${feuille.calcul_salaire.heures_normales}h</p>
+                    <p><strong>Heures complémentaires:</strong> ${feuille.calcul_salaire.heures_complementaires}h</p>
+                    <p><strong>Heures complémentaires majorées:</strong> ${feuille.calcul_salaire.heures_complementaires_majorees}h</p>
+                    <p><strong>Heures supplémentaires:</strong> ${feuille.calcul_salaire.total_heures_supplementaires}h</p>
+                </div>
+                <div class="col-6">
+                    <p><strong>Salaire normal:</strong> ${feuille.calcul_salaire.salaire_normal?.toFixed(2)}€</p>
+                    <p><strong>Salaire complémentaire:</strong> ${feuille.calcul_salaire.salaire_complementaire?.toFixed(2)}€</p>
+                    <p><strong>Salaire complémentaire majoré:</strong> ${feuille.calcul_salaire.salaire_complementaire_majore?.toFixed(2)}€</p>
+                    <p><strong>Salaire supplémentaire:</strong> ${feuille.calcul_salaire.salaire_supplementaire?.toFixed(2)}€</p>
+                </div>
+            </div>
+            <hr>
+            <h4><strong>TOTAL BRUT: ${feuille.calcul_salaire.salaire_brut_total?.toFixed(2)}€</strong></h4>
+            <div style="margin-top: 15px;">
+                <p><strong>Estimation du salaire net:</strong></p>
+                <p>Cotisations sociales: -${feuille.salaire_net.cotisations_sociales?.toFixed(2)}€</p>
+                <p>Impôt sur le revenu: -${feuille.salaire_net.impot_mensuel?.toFixed(2)}€</p>
+                <h4><strong>TOTAL NET ESTIMÉ: ${feuille.salaire_net.salaire_net_final?.toFixed(2)}€</strong></h4>
+                <p style="font-size: 10px; color: #999;">⚠️ Estimation approximative - Consultez votre service paie pour les montants exacts</p>
+            </div>
+        </div>
+        
+        <div class="pdf-section" style="margin-top: 30px;">
+            <p style="font-size: 12px; color: #666;">
+                Document généré le ${new Date().toLocaleDateString('fr-FR')} par le Gestionnaire d'Heures
+            </p>
+        </div>
+    `;
+    
+    return html;
+}
+
+// Modifier la fonction voirDetail pour stocker la feuille actuelle
+function voirDetail(feuilleId) {
+    fetch(`/api/feuille-heures/${feuilleId}`)
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            alert('Erreur: ' + data.error);
+            return;
+        }
+        
+        // Stocker la feuille actuelle pour l'export
+        feuilleActuelle = data;
+        
+        afficherDetailFeuille(data);
+    })
+    .catch(error => {
+        console.error('Erreur:', error);
+        alert('Erreur lors du chargement du détail de la feuille d\'heures');
+    });
 }
 
 // Charger les feuilles au chargement de la page

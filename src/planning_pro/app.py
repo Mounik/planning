@@ -1,4 +1,15 @@
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import (
+    Flask,
+    render_template,
+    request,
+    redirect,
+    url_for,
+    flash,
+    jsonify,
+    current_app,
+)
+from werkzeug.wrappers import Response
+from flask import send_file
 from flask_login import (
     LoginManager,
     login_user,
@@ -7,9 +18,27 @@ from flask_login import (
     current_user,
 )
 from flask_mail import Mail, Message
+from flask_wtf.csrf import CSRFProtect
+from flask_talisman import Talisman
 import os
+import logging
+import traceback
+from datetime import datetime
+from typing import Union, Tuple
 from .models import Planning, FeuilleDHeures, User
+from .database import db_manager
 from .config import Config
+from .security import (
+    SecurityValidator,
+    validator,
+    log_security_event,
+    require_json,
+    rate_limit,
+    USER_REGISTRATION_SCHEMA,
+    USER_LOGIN_SCHEMA,
+    PLANNING_SCHEMA,
+    validate_json_data,
+)
 
 # Chemin vers le répertoire racine du projet
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -18,6 +47,35 @@ STATIC_DIR = os.path.join(BASE_DIR, "static")
 
 app = Flask(__name__, template_folder=TEMPLATE_DIR, static_folder=STATIC_DIR)
 app.config.from_object(Config)
+
+# Configuration du logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.FileHandler("data/security.log"), logging.StreamHandler()],
+)
+
+# Configuration de la sécurité
+csrf = CSRFProtect(app)
+
+# Configuration des headers de sécurité avec Talisman
+if app.config.get("SECURITY_HEADERS", True):
+    csp = {
+        "default-src": "'self'",
+        "script-src": "'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com",
+        "style-src": "'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com",
+        "font-src": "'self' https://cdnjs.cloudflare.com",
+        "img-src": "'self' data:",
+        "connect-src": "'self'",
+    }
+
+    Talisman(
+        app,
+        force_https=app.config.get("FORCE_HTTPS", False),
+        strict_transport_security=True,
+        content_security_policy=csp,
+        session_cookie_secure=app.config.get("SESSION_COOKIE_SECURE", False),
+    )
 
 # Configuration Flask-Login
 login_manager = LoginManager()
@@ -30,6 +88,116 @@ login_manager.login_message_category = "info"
 mail = Mail(app)
 
 
+@app.errorhandler(400)
+def handle_bad_request(error):
+    """Gestion des erreurs 400 - Bad Request"""
+    log_security_event(
+        "HTTP_400", f"Bad request: {error.description}", ip_address=request.remote_addr
+    )
+    if request.is_json:
+        return jsonify({"error": "Requête invalide", "details": error.description}), 400
+    flash("Requête invalide", "error")
+    return (
+        render_template("error.html", error_code=400, error_message="Requête invalide"),
+        400,
+    )
+
+
+@app.errorhandler(401)
+def handle_unauthorized(error):
+    """Gestion des erreurs 401 - Unauthorized"""
+    log_security_event(
+        "HTTP_401", "Unauthorized access attempt", ip_address=request.remote_addr
+    )
+    if request.is_json:
+        return jsonify({"error": "Accès non autorisé"}), 401
+    flash("Accès non autorisé", "error")
+    return redirect(url_for("login"))
+
+
+@app.errorhandler(403)
+def handle_forbidden(error):
+    """Gestion des erreurs 403 - Forbidden"""
+    log_security_event(
+        "HTTP_403", "Forbidden access attempt", ip_address=request.remote_addr
+    )
+    if request.is_json:
+        return jsonify({"error": "Accès interdit"}), 403
+    flash("Accès interdit", "error")
+    return (
+        render_template("error.html", error_code=403, error_message="Accès interdit"),
+        403,
+    )
+
+
+@app.errorhandler(404)
+def handle_not_found(error):
+    """Gestion des erreurs 404 - Not Found"""
+    if request.is_json:
+        return jsonify({"error": "Ressource non trouvée"}), 404
+    flash("Page non trouvée", "error")
+    return (
+        render_template("error.html", error_code=404, error_message="Page non trouvée"),
+        404,
+    )
+
+
+@app.errorhandler(500)
+def handle_internal_error(error):
+    """Gestion des erreurs 500 - Internal Server Error"""
+    error_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_security_event(
+        "HTTP_500",
+        f"Internal server error [ID: {error_id}] - {str(error)}",
+        ip_address=request.remote_addr,
+    )
+
+    # Log détaillé pour le débogage
+    if current_app.debug:
+        current_app.logger.error(
+            f"Internal error [{error_id}]: {traceback.format_exc()}"
+        )
+
+    if request.is_json:
+        return (
+            jsonify({"error": "Erreur interne du serveur", "error_id": error_id}),
+            500,
+        )
+
+    flash(f"Erreur interne du serveur (ID: {error_id})", "error")
+    return (
+        render_template(
+            "error.html", error_code=500, error_message="Erreur interne du serveur"
+        ),
+        500,
+    )
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(error):
+    """Gestion des erreurs non gérées"""
+    error_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_security_event(
+        "UNEXPECTED_ERROR",
+        f"Unexpected error [ID: {error_id}] - {str(error)}",
+        ip_address=request.remote_addr,
+    )
+
+    # Log détaillé pour le débogage
+    current_app.logger.error(f"Unexpected error [{error_id}]: {traceback.format_exc()}")
+
+    if request.is_json:
+        return jsonify({"error": "Erreur inattendue", "error_id": error_id}), 500
+
+    flash(f"Erreur inattendue (ID: {error_id})", "error")
+    return (
+        render_template(
+            "error.html", error_code=500, error_message="Erreur inattendue"
+        ),
+        500,
+    )
+
+
 @login_manager.user_loader
 def load_user(user_id):
     try:
@@ -40,7 +208,7 @@ def load_user(user_id):
 
 # Routes d'authentification
 @app.route("/login", methods=["GET", "POST"])
-def login():
+def login() -> Union[Response, str]:
     if request.method == "POST":
         email = request.form.get("email")
         password = request.form.get("password")
@@ -60,37 +228,102 @@ def login():
 
 
 @app.route("/register", methods=["GET", "POST"])
-def register():
+@rate_limit(max_requests=10, window_seconds=3600)  # Max 10 inscriptions par heure
+def register() -> Union[Response, str]:
     if request.method == "POST":
-        email = request.form.get("email")
-        password = request.form.get("password")
-        nom = request.form.get("nom")
-        prenom = request.form.get("prenom")
+        email = request.form.get("email", "").strip()
+        password = request.form.get("password", "")
+        nom = request.form.get("nom", "").strip()
+        prenom = request.form.get("prenom", "").strip()
 
-        if email and password and nom and prenom:
-            # Vérifier si l'utilisateur existe déjà
-            if User.get_by_email(email):
-                flash("Un compte avec cet email existe déjà", "error")
-                return render_template("register.html")
+        # Validation des données
+        if not all([email, password, nom, prenom]):
+            log_security_event(
+                "REGISTRATION_FAILED",
+                "Missing required fields",
+                ip_address=request.remote_addr,
+            )
+            flash("Tous les champs sont requis", "error")
+            return render_template("register.html")
+
+        # Validation de l'email
+        if not validator.validate_email(email):
+            log_security_event(
+                "REGISTRATION_FAILED",
+                f"Invalid email format: {email}",
+                ip_address=request.remote_addr,
+            )
+            flash("Format d'email invalide", "error")
+            return render_template("register.html")
+
+        # Validation du mot de passe
+        is_valid_password, password_message = validator.validate_password(password)
+        if not is_valid_password:
+            log_security_event(
+                "REGISTRATION_FAILED",
+                f"Weak password for {email}",
+                ip_address=request.remote_addr,
+            )
+            flash(password_message, "error")
+            return render_template("register.html")
+
+        # Validation du nom et prénom
+        if not validator.validate_name(nom) or not validator.validate_name(prenom):
+            log_security_event(
+                "REGISTRATION_FAILED",
+                f"Invalid name format for {email}",
+                ip_address=request.remote_addr,
+            )
+            flash(
+                "Nom et prénom invalides (2-50 caractères, lettres uniquement)", "error"
+            )
+            return render_template("register.html")
+
+        # Vérifier si l'utilisateur existe déjà
+        if User.get_by_email(email):
+            log_security_event(
+                "REGISTRATION_FAILED",
+                f"Account already exists: {email}",
+                ip_address=request.remote_addr,
+            )
+            flash("Un compte avec cet email existe déjà", "error")
+            return render_template("register.html")
+
+        try:
+            # Sanitiser les données
+            email = validator.sanitize_string(email.lower())
+            nom = validator.sanitize_string(nom)
+            prenom = validator.sanitize_string(prenom)
 
             # Créer le nouvel utilisateur
             user = User(email=email, password=password, nom=nom, prenom=prenom)
             user.save()
 
+            log_security_event(
+                "REGISTRATION_SUCCESS",
+                f"New account created: {email}",
+                ip_address=request.remote_addr,
+            )
             flash(
                 "Compte créé avec succès ! Vous pouvez maintenant vous connecter.",
                 "success",
             )
             return redirect(url_for("login"))
-        else:
-            flash("Tous les champs sont requis", "error")
+        except Exception as e:
+            log_security_event(
+                "REGISTRATION_ERROR",
+                f"Account creation failed for {email}: {str(e)}",
+                ip_address=request.remote_addr,
+            )
+            flash("Erreur lors de la création du compte", "error")
+            return render_template("register.html")
 
     return render_template("register.html")
 
 
 @app.route("/logout")
 @login_required
-def logout():
+def logout() -> Response:
     logout_user()
     flash("Vous avez été déconnecté", "info")
     return redirect(url_for("login"))
@@ -98,7 +331,7 @@ def logout():
 
 # Routes de récupération de mot de passe
 @app.route("/forgot-password", methods=["GET", "POST"])
-def forgot_password():
+def forgot_password() -> Union[Response, str]:
     if request.method == "POST":
         email = request.form.get("email")
 
@@ -187,7 +420,7 @@ L'équipe Planning Pro
 
 
 @app.route("/reset-password/<token>", methods=["GET", "POST"])
-def reset_password(token):
+def reset_password(token: str) -> Union[Response, str]:
     user = User.get_by_reset_token(token)
     if not user:
         flash("Le lien de réinitialisation est invalide ou a expiré", "error")
@@ -222,7 +455,7 @@ def reset_password(token):
 # Routes principales (protégées)
 @app.route("/")
 @login_required
-def index():
+def index() -> str:
     # Récupérer les plannings récents pour l'utilisateur connecté
     plannings = Planning.get_by_user(current_user.id)
     feuilles = FeuilleDHeures.get_by_user(current_user.id)
@@ -242,7 +475,7 @@ def index():
 
 @app.route("/planning", methods=["GET", "POST"])
 @login_required
-def planning():
+def planning() -> Union[Response, str]:
     if request.method == "POST":
         # Traitement du formulaire de création/modification de planning
         planning_id = request.form.get("planning_id")
@@ -360,16 +593,14 @@ def planning():
 
 @app.route("/planning/<int:planning_id>/delete", methods=["POST"])
 @login_required
-def delete_planning(planning_id):
+def delete_planning(planning_id: int) -> Response:
     planning_obj = Planning.get_by_id(planning_id)
     if not planning_obj or planning_obj.user_id != current_user.id:
         flash("Planning non trouvé", "error")
         return redirect(url_for("planning"))
 
-    # Supprimer le planning du stockage
-    plannings = Planning.get_all()
-    plannings = [p for p in plannings if p.id != planning_id]
-    Planning.store.save([p.to_dict() for p in plannings])
+    # Supprimer le planning de la base de données
+    db_manager.execute_delete("DELETE FROM plannings WHERE id = ?", (planning_id,))
 
     flash("Planning supprimé avec succès", "success")
     return redirect(url_for("planning"))
@@ -377,7 +608,7 @@ def delete_planning(planning_id):
 
 @app.route("/planning/<int:planning_id>/convert", methods=["POST"])
 @login_required
-def convert_planning(planning_id):
+def convert_planning(planning_id: int) -> Response:
     planning_obj = Planning.get_by_id(planning_id)
     if not planning_obj or planning_obj.user_id != current_user.id:
         flash("Planning non trouvé", "error")
@@ -401,7 +632,7 @@ def convert_planning(planning_id):
 
 @app.route("/feuille-heures")
 @login_required
-def feuille_heures():
+def feuille_heures() -> str:
     feuilles = FeuilleDHeures.get_by_user(current_user.id)
 
     # Détail d'une feuille si spécifié
@@ -422,19 +653,319 @@ def feuille_heures():
 
 @app.route("/feuille-heures/<int:feuille_id>/delete", methods=["POST"])
 @login_required
-def delete_feuille_heures(feuille_id):
+def delete_feuille_heures(feuille_id: int) -> Response:
     feuille = FeuilleDHeures.get_by_id(feuille_id)
     if not feuille or feuille.user_id != current_user.id:
         flash("Feuille d'heures non trouvée", "error")
         return redirect(url_for("feuille_heures"))
 
-    # Supprimer la feuille d'heures du stockage
-    feuilles = FeuilleDHeures.get_all()
-    feuilles = [f for f in feuilles if f.id != feuille_id]
-    FeuilleDHeures.store.save([f.to_dict() for f in feuilles])
+    # Supprimer la feuille d'heures de la base de données
+    db_manager.execute_delete("DELETE FROM feuilles_heures WHERE id = ?", (feuille_id,))
 
     flash("Feuille d'heures supprimée avec succès", "success")
     return redirect(url_for("feuille_heures"))
+
+
+# API endpoints pour l'interface JavaScript
+@app.route("/api/planning", methods=["GET", "POST"])
+@login_required
+@rate_limit(max_requests=100, window_seconds=3600)
+def api_planning() -> Union[Response, Tuple[Response, int]]:
+
+    if request.method == "GET":
+        # Récupérer tous les plannings de l'utilisateur
+        plannings = Planning.get_by_user(current_user.id)
+        return jsonify([p.to_dict() for p in plannings])
+
+    elif request.method == "POST":
+        # Créer un nouveau planning
+        try:
+            data = request.get_json()
+            if not data:
+                log_security_event(
+                    "API_PLANNING_FAILED", "Missing JSON data", current_user.id
+                )
+                return jsonify({"error": "Données JSON manquantes"}), 400
+
+            # Validation des données
+            is_valid, error_message = validator.validate_planning_data(data)
+            if not is_valid:
+                log_security_event(
+                    "API_PLANNING_FAILED",
+                    f"Invalid data: {error_message}",
+                    current_user.id,
+                )
+                return jsonify({"error": error_message}), 400
+
+            planning = Planning(
+                mois=int(data["mois"]),
+                annee=int(data["annee"]),
+                jours_travail=data["jours_travail"],
+                taux_horaire=float(data["taux_horaire"]),
+                user_id=current_user.id,
+                heures_contractuelles=float(data.get("heures_contractuelles", 35.0)),
+            )
+            planning.save()
+
+            log_security_event(
+                "API_PLANNING_SUCCESS",
+                f"Planning created for {data['mois']}/{data['annee']}",
+                current_user.id,
+            )
+            return jsonify({"success": True, "data": planning.to_dict()}), 201
+        except Exception as e:
+            log_security_event(
+                "API_PLANNING_ERROR",
+                f"Planning creation failed: {str(e)}",
+                current_user.id,
+            )
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": "Erreur lors de la création du planning",
+                    }
+                ),
+                500,
+            )
+
+    # This should never be reached due to route method restrictions
+    return jsonify({"error": "Method not allowed"}), 405
+
+
+@app.route("/api/planning/<int:planning_id>", methods=["GET", "PUT", "DELETE"])
+@login_required
+@rate_limit(max_requests=200, window_seconds=3600)
+def api_planning_detail(planning_id: int) -> Union[Response, Tuple[Response, int]]:
+
+    planning = Planning.get_by_id(planning_id)
+    if not planning or planning.user_id != current_user.id:
+        log_security_event(
+            "API_PLANNING_UNAUTHORIZED",
+            f"Unauthorized access to planning {planning_id}",
+            current_user.id,
+        )
+        return jsonify({"error": "Planning non trouvé"}), 404
+
+    if request.method == "GET":
+        return jsonify(planning.to_dict())
+
+    elif request.method == "PUT":
+        try:
+            data = request.get_json()
+            if not data:
+                log_security_event(
+                    "API_PLANNING_FAILED",
+                    "Missing JSON data for update",
+                    current_user.id,
+                )
+                return jsonify({"error": "Données JSON manquantes"}), 400
+
+            # Validation des données
+            is_valid, error_message = validator.validate_planning_data(data)
+            if not is_valid:
+                log_security_event(
+                    "API_PLANNING_FAILED",
+                    f"Invalid update data: {error_message}",
+                    current_user.id,
+                )
+                return jsonify({"error": error_message}), 400
+
+            planning.mois = int(data["mois"])
+            planning.annee = int(data["annee"])
+            planning.jours_travail = data["jours_travail"]
+            planning.taux_horaire = float(data["taux_horaire"])
+            planning.heures_contractuelles = float(
+                data.get("heures_contractuelles", 35.0)
+            )
+            planning.save()
+
+            log_security_event(
+                "API_PLANNING_SUCCESS",
+                f"Planning {planning_id} updated",
+                current_user.id,
+            )
+            return jsonify({"success": True, "data": planning.to_dict()})
+        except Exception as e:
+            log_security_event(
+                "API_PLANNING_ERROR",
+                f"Planning update failed: {str(e)}",
+                current_user.id,
+            )
+            return (
+                jsonify({"success": False, "error": "Erreur lors de la mise à jour"}),
+                500,
+            )
+
+    elif request.method == "DELETE":
+        try:
+            db_manager.execute_delete(
+                "DELETE FROM plannings WHERE id = ?", (planning_id,)
+            )
+            log_security_event(
+                "API_PLANNING_SUCCESS",
+                f"Planning {planning_id} deleted",
+                current_user.id,
+            )
+            return jsonify(
+                {"success": True, "message": "Planning supprimé avec succès"}
+            )
+        except Exception as e:
+            log_security_event(
+                "API_PLANNING_ERROR",
+                f"Planning deletion failed: {str(e)}",
+                current_user.id,
+            )
+            return (
+                jsonify({"success": False, "error": "Erreur lors de la suppression"}),
+                500,
+            )
+
+    # This should never be reached due to route method restrictions
+    return jsonify({"error": "Method not allowed"}), 405
+
+
+@app.route("/api/planning/<int:planning_id>/convert", methods=["POST"])
+@login_required
+@rate_limit(max_requests=50, window_seconds=3600)
+def api_planning_convert(planning_id: int) -> Union[Response, Tuple[Response, int]]:
+
+    planning = Planning.get_by_id(planning_id)
+    if not planning or planning.user_id != current_user.id:
+        log_security_event(
+            "API_CONVERT_UNAUTHORIZED",
+            f"Unauthorized access to planning {planning_id}",
+            current_user.id,
+        )
+        return jsonify({"error": "Planning non trouvé"}), 404
+
+    try:
+        feuille = planning.to_feuille_heures()
+        log_security_event(
+            "API_CONVERT_SUCCESS",
+            f"Planning {planning_id} converted to feuille",
+            current_user.id,
+        )
+        return jsonify({"success": True, "data": feuille.to_dict()})
+    except Exception as e:
+        log_security_event(
+            "API_CONVERT_ERROR",
+            f"Planning conversion failed: {str(e)}",
+            current_user.id,
+        )
+        return jsonify({"success": False, "error": "Erreur lors de la conversion"}), 500
+
+
+@app.route("/api/feuille-heures", methods=["GET"])
+@login_required
+@rate_limit(max_requests=200, window_seconds=3600)
+def api_feuille_heures() -> Response:
+
+    feuilles = FeuilleDHeures.get_by_user(current_user.id)
+    return jsonify([f.to_dict() for f in feuilles])
+
+
+@app.route("/api/contracts", methods=["GET"])
+@login_required
+@rate_limit(max_requests=100, window_seconds=3600)
+def api_contracts() -> Response:
+    """Retourne la liste des contrats de travail disponibles"""
+    from .salary_calculator import salary_calculator
+
+    contracts = salary_calculator.get_available_contracts()
+    return jsonify(contracts)
+
+
+@app.route("/api/feuille-heures/<int:feuille_id>", methods=["GET", "DELETE"])
+@login_required
+@rate_limit(max_requests=200, window_seconds=3600)
+def api_feuille_heures_detail(feuille_id: int) -> Union[Response, Tuple[Response, int]]:
+
+    feuille = FeuilleDHeures.get_by_id(feuille_id)
+    if not feuille or feuille.user_id != current_user.id:
+        log_security_event(
+            "API_FEUILLE_UNAUTHORIZED",
+            f"Unauthorized access to feuille {feuille_id}",
+            current_user.id,
+        )
+        return jsonify({"error": "Feuille d'heures non trouvée"}), 404
+
+    if request.method == "GET":
+        return jsonify(feuille.to_dict())
+
+    elif request.method == "DELETE":
+        try:
+            db_manager.execute_delete(
+                "DELETE FROM feuilles_heures WHERE id = ?", (feuille_id,)
+            )
+            log_security_event(
+                "API_FEUILLE_SUCCESS", f"Feuille {feuille_id} deleted", current_user.id
+            )
+            return jsonify(
+                {"success": True, "message": "Feuille d'heures supprimée avec succès"}
+            )
+        except Exception as e:
+            log_security_event(
+                "API_FEUILLE_ERROR",
+                f"Feuille deletion failed: {str(e)}",
+                current_user.id,
+            )
+            return (
+                jsonify({"success": False, "error": "Erreur lors de la suppression"}),
+                500,
+            )
+
+    # This should never be reached due to route method restrictions
+    return jsonify({"error": "Method not allowed"}), 405
+
+
+@app.route("/api/feuille-heures/<int:feuille_id>/pdf", methods=["GET"])
+@login_required
+@rate_limit(max_requests=20, window_seconds=3600)
+def api_feuille_heures_pdf(feuille_id: int) -> Union[Response, Tuple[Response, int]]:
+    """Génère un PDF pour une feuille d'heures"""
+    
+    feuille = FeuilleDHeures.get_by_id(feuille_id)
+    if not feuille or feuille.user_id != current_user.id:
+        log_security_event(
+            "API_PDF_UNAUTHORIZED",
+            f"Unauthorized PDF access to feuille {feuille_id}",
+            current_user.id,
+        )
+        return jsonify({"error": "Feuille d'heures non trouvée"}), 404
+    
+    try:
+        from .pdf_generator import pdf_generator
+        
+        # Récupérer les données de la feuille
+        feuille_data = feuille.to_dict()
+        
+        # Générer le PDF
+        pdf_buffer = pdf_generator.generer_pdf_feuille(feuille_data)
+        
+        # Nom du fichier
+        filename = f"feuille_heures_{feuille.mois}_{feuille.annee}.pdf"
+        
+        log_security_event(
+            "API_PDF_SUCCESS",
+            f"PDF generated for feuille {feuille_id}",
+            current_user.id,
+        )
+        
+        return send_file(
+            pdf_buffer,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/pdf'
+        )
+        
+    except Exception as e:
+        log_security_event(
+            "API_PDF_ERROR",
+            f"PDF generation failed for feuille {feuille_id}: {str(e)}",
+            current_user.id,
+        )
+        return jsonify({"error": "Erreur lors de la génération du PDF"}), 500
 
 
 if __name__ == "__main__":

@@ -37,23 +37,30 @@
                             <option value="12">Décembre</option>
                         </select>
                     </div>
-                    
+
                     <div class="mb-3">
                         <label for="annee" class="form-label">Année</label>
                         <input type="number" class="form-control" id="annee" min="2020" max="2030" required>
                     </div>
-                    
+
                     <div class="mb-3">
                         <label for="tauxHoraire" class="form-label">Taux horaire brut (€)</label>
                         <input type="number" class="form-control" id="tauxHoraire" step="0.01" min="0" required>
                     </div>
-                    
+
                     <div class="mb-3">
-                        <label for="heuresContractuelles" class="form-label">Heures contractuelles par semaine</label>
-                        <input type="number" class="form-control" id="heuresContractuelles" step="0.5" min="0" value="35" required>
-                        <div class="form-text">Nombre d'heures par semaine selon votre contrat (ex: 20h, 25h, 30h, 35h...)</div>
+                        <label for="heuresContractuelles" class="form-label">Type de contrat</label>
+                        <select class="form-select" id="heuresContractuelles" required>
+                            <option value="">Choisissez votre contrat</option>
+                            <option value="20">20h/semaine</option>
+                            <option value="25">25h/semaine</option>
+                            <option value="30">30h/semaine</option>
+                            <option value="35" selected>35h/semaine (temps plein)</option>
+                            <option value="39">39h/semaine</option>
+                        </select>
+                        <div class="form-text">Sélectionnez votre type de contrat pour un calcul précis des heures supplémentaires et complémentaires</div>
                     </div>
-                    
+
                     <button type="button" class="btn btn-primary" onclick="genererCalendrier()">
                         <i class="fas fa-calendar"></i> Générer le Calendrier
                     </button>
@@ -61,7 +68,7 @@
             </div>
         </div>
     </div>
-    
+
     <div class="col-md-6">
         <div class="card">
             <div class="card-header">
@@ -106,42 +113,47 @@ let joursPlanning = [];
 let moisCourant, anneeCourante;
 let planningIdEnCours = null; // Pour savoir si on modifie un planning existant
 
+// Récupérer le token CSRF
+function getCSRFToken() {
+    return window.csrf_token || null;
+}
+
 function genererCalendrier() {
     const mois = document.getElementById('mois').value;
     const annee = document.getElementById('annee').value;
-    
+
     if (!mois || !annee) {
         alert('Veuillez sélectionner un mois et une année');
         return;
     }
-    
+
     moisCourant = parseInt(mois);
     anneeCourante = parseInt(annee);
-    
+
     const calendrier = document.getElementById('calendrier');
     const section = document.getElementById('calendrierSection');
-    
+
     // Obtenir le nombre de jours dans le mois
     const nbJours = new Date(annee, mois, 0).getDate();
-    
+
     let html = '<div class="table-responsive"><table class="table table-striped">';
     html += '<thead><tr><th>Date</th><th>Jour</th><th>Travail</th><th>Créneaux</th><th>Actions</th></tr></thead><tbody>';
-    
+
     joursPlanning = [];
-    
+
     for (let jour = 1; jour <= nbJours; jour++) {
         const date = new Date(annee, mois - 1, jour);
         const nomJour = date.toLocaleDateString('fr-FR', { weekday: 'long' });
         const dateStr = date.toISOString().split('T')[0];
-        
+
         // Par défaut, travailler tous les jours (restaurants travaillent souvent 7j/7)
         const travaille = true;
-        
+
         html += `<tr>
             <td>${jour}/${mois}/${annee}</td>
             <td>${nomJour}</td>
             <td>
-                <input type="checkbox" class="form-check-input" id="travail_${jour}" ${travaille ? 'checked' : ''} 
+                <input type="checkbox" class="form-check-input" id="travail_${jour}" ${travaille ? 'checked' : ''}
                        onchange="toggleJourTravail(${jour})">
             </td>
             <td>
@@ -184,7 +196,7 @@ function genererCalendrier() {
                 </button>
             </td>
         </tr>`;
-        
+
         if (travaille) {
             joursPlanning.push({
                 date: dateStr,
@@ -195,7 +207,7 @@ function genererCalendrier() {
             });
         }
     }
-    
+
     html += '</tbody></table></div>';
     calendrier.innerHTML = html;
     section.style.display = 'block';
@@ -204,7 +216,7 @@ function genererCalendrier() {
 function toggleJourTravail(jour) {
     const checkbox = document.getElementById(`travail_${jour}`);
     const creneauxContainer = document.getElementById(`creneaux_${jour}`);
-    
+
     if (checkbox.checked) {
         creneauxContainer.style.display = 'block';
     } else {
@@ -216,7 +228,7 @@ function ajouterCreneau(jour) {
     const container = document.getElementById(`creneaux_${jour}`);
     const creneaux = container.querySelectorAll('.creneau-item');
     const index = creneaux.length;
-    
+
     const nouveauCreneau = document.createElement('div');
     nouveauCreneau.className = 'creneau-item mb-2';
     nouveauCreneau.innerHTML = `
@@ -234,14 +246,14 @@ function ajouterCreneau(jour) {
             </div>
         </div>
     `;
-    
+
     container.appendChild(nouveauCreneau);
 }
 
 function supprimerCreneau(jour, index) {
     const container = document.getElementById(`creneaux_${jour}`);
     const creneaux = container.querySelectorAll('.creneau-item');
-    
+
     if (creneaux.length > 1) {
         const creneau = document.getElementById(`debut_${jour}_${index}`).closest('.creneau-item');
         creneau.remove();
@@ -255,32 +267,32 @@ function sauvegarderPlanning() {
     const annee = document.getElementById('annee').value;
     const tauxHoraire = document.getElementById('tauxHoraire').value;
     const heuresContractuelles = document.getElementById('heuresContractuelles').value;
-    
+
     if (!mois || !annee || !tauxHoraire || !heuresContractuelles) {
         alert('Veuillez remplir tous les champs');
         return;
     }
-    
+
     joursPlanning = [];
-    
+
     // Récupérer les données du calendrier
     const nbJours = new Date(annee, mois, 0).getDate();
-    
+
     for (let jour = 1; jour <= nbJours; jour++) {
         const checkbox = document.getElementById(`travail_${jour}`);
-        
+
         if (checkbox.checked) {
             const date = new Date(annee, mois - 1, jour);
             const dateStr = date.toISOString().split('T')[0];
-            
+
             const creneauxContainer = document.getElementById(`creneaux_${jour}`);
             const creneauxElements = creneauxContainer.querySelectorAll('.creneau-item');
-            
+
             const creneaux = [];
             creneauxElements.forEach((creneauElement, index) => {
                 const debut = creneauElement.querySelector(`input[id^="debut_${jour}_"]`);
                 const fin = creneauElement.querySelector(`input[id^="fin_${jour}_"]`);
-                
+
                 if (debut && fin && debut.value && fin.value) {
                     creneaux.push({
                         heure_debut: debut.value,
@@ -288,7 +300,7 @@ function sauvegarderPlanning() {
                     });
                 }
             });
-            
+
             if (creneaux.length > 0) {
                 joursPlanning.push({
                     date: dateStr,
@@ -297,7 +309,7 @@ function sauvegarderPlanning() {
             }
         }
     }
-    
+
     const planning = {
         mois: parseInt(mois),
         annee: parseInt(annee),
@@ -305,14 +317,15 @@ function sauvegarderPlanning() {
         taux_horaire: parseFloat(tauxHoraire),
         heures_contractuelles: parseFloat(heuresContractuelles)
     };
-    
+
     const url = planningIdEnCours ? `/api/planning/${planningIdEnCours}` : '/api/planning';
     const method = planningIdEnCours ? 'PUT' : 'POST';
-    
+
     fetch(url, {
         method: method,
         headers: {
             'Content-Type': 'application/json',
+            'X-CSRFToken': getCSRFToken()
         },
         body: JSON.stringify(planning)
     })
@@ -338,17 +351,17 @@ function chargerPlannings() {
     .then(response => response.json())
     .then(data => {
         const container = document.getElementById('planningsExistants');
-        
+
         if (data.length === 0) {
             container.innerHTML = '<p class="text-muted">Aucun planning créé</p>';
             return;
         }
-        
+
         let html = '';
         data.forEach(planning => {
-            const moisNoms = ['', 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 
+            const moisNoms = ['', 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
                              'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
-            
+
             html += `
                 <div class="card mb-2">
                     <div class="card-body">
@@ -371,7 +384,7 @@ function chargerPlannings() {
                 </div>
             `;
         });
-        
+
         container.innerHTML = html;
     })
     .catch(error => {
@@ -388,23 +401,23 @@ function modifierPlanning(planningId) {
             alert('Erreur: ' + data.error);
             return;
         }
-        
+
         // Remplir les champs du formulaire
         document.getElementById('mois').value = data.mois;
         document.getElementById('annee').value = data.annee;
         document.getElementById('tauxHoraire').value = data.taux_horaire;
         document.getElementById('heuresContractuelles').value = data.heures_contractuelles || 35;
-        
+
         // Stocker l'ID du planning en cours de modification
         planningIdEnCours = planningId;
-        
+
         // Changer le texte du bouton
         document.getElementById('btnSauvegarderText').textContent = 'Mettre à jour le Planning';
         document.getElementById('btnAnnuler').style.display = 'inline-block';
-        
+
         // Générer le calendrier avec les données existantes
         genererCalendrierAvecDonnees(data.jours_travail);
-        
+
         // Faire défiler vers le calendrier
         document.getElementById('calendrierSection').scrollIntoView({ behavior: 'smooth' });
     })
@@ -417,40 +430,40 @@ function modifierPlanning(planningId) {
 function genererCalendrierAvecDonnees(joursExistants) {
     const mois = document.getElementById('mois').value;
     const annee = document.getElementById('annee').value;
-    
+
     moisCourant = parseInt(mois);
     anneeCourante = parseInt(annee);
-    
+
     const calendrier = document.getElementById('calendrier');
     const section = document.getElementById('calendrierSection');
-    
+
     // Obtenir le nombre de jours dans le mois
     const nbJours = new Date(annee, mois, 0).getDate();
-    
+
     let html = '<div class="table-responsive"><table class="table table-striped">';
     html += '<thead><tr><th>Date</th><th>Jour</th><th>Travail</th><th>Créneaux</th><th>Actions</th></tr></thead><tbody>';
-    
+
     joursPlanning = [];
-    
+
     for (let jour = 1; jour <= nbJours; jour++) {
         const date = new Date(annee, mois - 1, jour);
         const nomJour = date.toLocaleDateString('fr-FR', { weekday: 'long' });
         const dateStr = date.toISOString().split('T')[0];
-        
+
         // Chercher si ce jour existe dans les données
         const jourExistant = joursExistants.find(j => j.date === dateStr);
         const travaille = jourExistant ? true : false;
-        
+
         html += `<tr>
             <td>${jour}/${mois}/${annee}</td>
             <td>${nomJour}</td>
             <td>
-                <input type="checkbox" class="form-check-input" id="travail_${jour}" ${travaille ? 'checked' : ''} 
+                <input type="checkbox" class="form-check-input" id="travail_${jour}" ${travaille ? 'checked' : ''}
                        onchange="toggleJourTravail(${jour})">
             </td>
             <td>
                 <div id="creneaux_${jour}" class="creneaux-container" ${travaille ? '' : 'style="display: none;"'}>`;
-        
+
         if (jourExistant && jourExistant.creneaux) {
             jourExistant.creneaux.forEach((creneau, index) => {
                 html += `
@@ -471,7 +484,7 @@ function genererCalendrierAvecDonnees(joursExistants) {
                     </div>
                 `;
             });
-            
+
             // Ajouter au planning
             joursPlanning.push({
                 date: dateStr,
@@ -497,7 +510,7 @@ function genererCalendrierAvecDonnees(joursExistants) {
                 </div>
             `;
         }
-        
+
         html += `
                 </div>
             </td>
@@ -508,7 +521,7 @@ function genererCalendrierAvecDonnees(joursExistants) {
             </td>
         </tr>`;
     }
-    
+
     html += '</tbody></table></div>';
     calendrier.innerHTML = html;
     section.style.display = 'block';
@@ -519,7 +532,7 @@ function annulerModification() {
     document.getElementById('btnSauvegarderText').textContent = 'Sauvegarder le Planning';
     document.getElementById('btnAnnuler').style.display = 'none';
     document.getElementById('calendrierSection').style.display = 'none';
-    
+
     // Réinitialiser le formulaire
     document.getElementById('mois').value = '';
     document.getElementById('annee').value = new Date().getFullYear();
@@ -530,7 +543,10 @@ function annulerModification() {
 function convertirEnFeuille(planningId) {
     if (confirm('Convertir ce planning en feuille d\'heures ?')) {
         fetch(`/api/planning/${planningId}/convert`, {
-            method: 'POST'
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': getCSRFToken()
+            }
         })
         .then(response => response.json())
         .then(data => {
@@ -552,7 +568,7 @@ function convertirEnFeuille(planningId) {
 // Charger les plannings au chargement de la page
 document.addEventListener('DOMContentLoaded', function() {
     chargerPlannings();
-    
+
     // Définir l'année courante par défaut
     document.getElementById('annee').value = new Date().getFullYear();
 });

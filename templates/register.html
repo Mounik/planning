@@ -33,6 +33,7 @@
                         {% endwith %}
 
                         <form method="POST">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                             <div class="row">
                                 <div class="col-md-6">
                                     <div class="mb-3">
@@ -47,28 +48,28 @@
                                     </div>
                                 </div>
                             </div>
-                            
+
                             <div class="mb-3">
                                 <label for="email" class="form-label">Email</label>
                                 <input type="email" class="form-control" id="email" name="email" required>
                             </div>
-                            
+
                             <div class="mb-3">
                                 <label for="password" class="form-label">Mot de passe</label>
                                 <input type="password" class="form-control" id="password" name="password" required>
                                 <div class="form-text">Minimum 6 caractères</div>
                             </div>
-                            
+
                             <div class="d-grid">
                                 <button type="submit" class="btn btn-success">
                                     <i class="fas fa-user-plus"></i> Créer mon compte
                                 </button>
                             </div>
                         </form>
-                        
+
                         <div class="text-center mt-3">
                             <p class="text-muted">
-                                Déjà un compte ? 
+                                Déjà un compte ?
                                 <a href="{{ url_for('login') }}" class="text-decoration-none">
                                     Se connecter
                                 </a>

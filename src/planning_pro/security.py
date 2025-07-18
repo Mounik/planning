@@ -86,7 +86,9 @@ class SecurityValidator:
 
     @staticmethod
     def validate_numeric(
-        value: Union[str, int, float], min_val: float = None, max_val: float = None
+        value: Union[str, int, float],
+        min_val: Optional[float] = None,
+        max_val: Optional[float] = None,
     ) -> bool:
         """Valide une valeur numérique"""
         try:
@@ -113,23 +115,29 @@ class SecurityValidator:
             return False, "Données invalides"
 
         # Validation du mois
-        if not SecurityValidator.validate_numeric(data.get("mois"), 1, 12):
+        mois = data.get("mois")
+        if mois is None or not SecurityValidator.validate_numeric(mois, 1, 12):
             return False, "Mois invalide (1-12)"
 
         # Validation de l'année
         current_year = datetime.now().year
-        if not SecurityValidator.validate_numeric(
-            data.get("annee"), current_year - 5, current_year + 5
+        annee = data.get("annee")
+        if annee is None or not SecurityValidator.validate_numeric(
+            annee, current_year - 5, current_year + 5
         ):
             return False, f"Année invalide ({current_year - 5}-{current_year + 5})"
 
         # Validation du taux horaire
-        if not SecurityValidator.validate_numeric(data.get("taux_horaire"), 0.01, 1000):
+        taux_horaire = data.get("taux_horaire")
+        if taux_horaire is None or not SecurityValidator.validate_numeric(
+            taux_horaire, 0.01, 1000
+        ):
             return False, "Taux horaire invalide (0.01-1000)"
 
         # Validation des heures contractuelles
-        if not SecurityValidator.validate_numeric(
-            data.get("heures_contractuelles"), 1, 60
+        heures_contractuelles = data.get("heures_contractuelles")
+        if heures_contractuelles is None or not SecurityValidator.validate_numeric(
+            heures_contractuelles, 1, 60
         ):
             return False, "Heures contractuelles invalides (1-60)"
 
@@ -146,8 +154,9 @@ class SecurityValidator:
                 return False, "Format de jour invalide"
 
             # Validation de la date
-            if not SecurityValidator.validate_date(jour.get("date")):
-                return False, f"Date invalide: {jour.get('date')}"
+            date_str = jour.get("date")
+            if date_str is None or not SecurityValidator.validate_date(date_str):
+                return False, f"Date invalide: {date_str}"
 
             # Validation des créneaux
             creneaux = jour.get("creneaux", [])
@@ -161,23 +170,27 @@ class SecurityValidator:
                 if not isinstance(creneau, dict):
                     return False, "Format de créneau invalide"
 
-                if not SecurityValidator.validate_time(creneau.get("heure_debut")):
+                heure_debut = creneau.get("heure_debut")
+                if heure_debut is None or not SecurityValidator.validate_time(
+                    heure_debut
+                ):
                     return (
                         False,
-                        f"Heure de début invalide: {creneau.get('heure_debut')}",
+                        f"Heure de début invalide: {heure_debut}",
                     )
 
-                if not SecurityValidator.validate_time(creneau.get("heure_fin")):
-                    return False, f"Heure de fin invalide: {creneau.get('heure_fin')}"
+                heure_fin = creneau.get("heure_fin")
+                if heure_fin is None or not SecurityValidator.validate_time(heure_fin):
+                    return False, f"Heure de fin invalide: {heure_fin}"
 
         return True, "Données valides"
 
 
-def require_json(f):
+def require_json(f: Any) -> Any:
     """Décorateur pour exiger un Content-Type JSON"""
 
     @wraps(f)
-    def decorated_function(*args, **kwargs):
+    def decorated_function(*args: Any, **kwargs: Any) -> Any:
         if not request.is_json:
             security_logger.warning(
                 f"Non-JSON request to {request.endpoint} from {request.remote_addr}"
@@ -188,12 +201,12 @@ def require_json(f):
     return decorated_function
 
 
-def rate_limit(max_requests: int = 100, window_seconds: int = 3600):
+def rate_limit(max_requests: int = 100, window_seconds: int = 3600) -> Any:
     """Décorateur simple de limitation de taux (rate limiting)"""
 
-    def decorator(f):
+    def decorator(f: Any) -> Any:
         @wraps(f)
-        def decorated_function(*args, **kwargs):
+        def decorated_function(*args: Any, **kwargs: Any) -> Any:
             # Implémentation basique - en production, utiliser Redis ou memcached
             request.remote_addr
             datetime.now()

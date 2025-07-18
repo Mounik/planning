@@ -504,22 +504,30 @@ class FeuilleDHeures:
                 result["salaire_brut_total"] += result_semaine["salaire_brut_total"]
 
                 # Additionner les heures supplémentaires
-                for sup in result_semaine["heures_supplementaires"]:
-                    result["heures_supplementaires"].append(sup)
+                heures_supplementaires = result["heures_supplementaires"]
+                if isinstance(heures_supplementaires, list):
+                    for sup in result_semaine["heures_supplementaires"]:
+                        heures_supplementaires.append(sup)
 
                 # Garder le détail de la semaine
-                result["detail_semaines"].append(
-                    {
-                        "semaine": semaine_num,
-                        "heures": heures_semaine,
-                        "salaire": result_semaine["salaire_brut_total"],
-                    }
-                )
+                detail_semaines = result["detail_semaines"]
+                if isinstance(detail_semaines, list):
+                    detail_semaines.append(
+                        {
+                            "semaine": semaine_num,
+                            "heures": heures_semaine,
+                            "salaire": result_semaine["salaire_brut_total"],
+                        }
+                    )
 
         # Calculer le total des heures supplémentaires
-        result["total_heures_supplementaires"] = sum(
-            sup["heures"] for sup in result["heures_supplementaires"]
-        )
+        heures_supplementaires = result["heures_supplementaires"]
+        if isinstance(heures_supplementaires, list):
+            result["total_heures_supplementaires"] = sum(
+                sup["heures"] for sup in heures_supplementaires
+            )
+        else:
+            result["total_heures_supplementaires"] = 0
 
         return result
 
@@ -559,15 +567,15 @@ class FeuilleDHeures:
         debut_semaine = premiere_date - timedelta(days=jours_depuis_lundi)
 
         # Calculer les heures par semaine
-        semaines_heures = []
+        semaines_heures: List[float] = []
         date_courante = debut_semaine
 
         while date_courante <= derniere_date:
-            heures_semaine = 0
+            heures_semaine: float = 0.0
 
             # Calculer les heures pour les 7 jours de la semaine
-            for jour in range(7):
-                date_jour = date_courante + timedelta(days=jour)
+            for jour_num in range(7):
+                date_jour = date_courante + timedelta(days=jour_num)
                 date_str = date_jour.strftime("%Y-%m-%d")
 
                 if date_str in heures_par_date:

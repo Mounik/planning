@@ -46,7 +46,7 @@ Application web Flask pour la gestion des plannings de travail et le calcul des 
 ### Backend
 - **Framework** : Flask avec Python 3.8+
 - **Base de données** : SQLite avec gestion des relations
-- **ORM** : SQL natif avec gestionnaire de base de données personnalisé
+- **Gestionnaire BDD** : Module database.py personnalisé
 - **Sécurité** : bcrypt pour les mots de passe, Flask-Login pour l'authentification
 
 ### Frontend
@@ -58,14 +58,19 @@ Application web Flask pour la gestion des plannings de travail et le calcul des 
 ```
 📁 data/
 ├── planning.db          # Base de données SQLite
-└── backup_json/         # Sauvegardes des anciennes données JSON
+├── access.log          # Logs d'accès
+├── error.log           # Logs d'erreurs
+└── security.log        # Logs de sécurité
 
 📁 src/planning_pro/
-├── app.py              # Application Flask principale
-├── models.py           # Modèles de données SQLite
-├── database.py         # Gestionnaire de base de données
-├── salary_calculator.py # Calculateur de salaires avancé
-└── config.py           # Configuration
+├── app.py                    # Application Flask principale
+├── models.py                 # Modèles de données SQLite
+├── database.py               # Gestionnaire de base de données
+├── salary_calculator.py      # Calculateur de salaires avancé
+├── net_salary_calculator.py  # Calculateur de salaire net
+├── pdf_generator.py          # Générateur de PDF
+├── security.py               # Utilitaires de sécurité
+└── config.py                 # Configuration
 
 📁 templates/           # Templates HTML Jinja2
 ```
@@ -148,23 +153,51 @@ uv run flake8 src/
 # Vérification des types
 uv run mypy src/planning_pro
 
-# Tests (à implémenter)
+# Tests complets
 uv run pytest tests/
+
+# Tests avec couverture
+uv run pytest tests/ --cov
+
+# Tests par catégorie
+uv run pytest tests/ -m unit          # Tests unitaires
+uv run pytest tests/ -m integration   # Tests d'intégration
+uv run pytest tests/ -m security      # Tests de sécurité
+uv run pytest tests/ -m api           # Tests API
+
+# Audit de sécurité
+uv run safety check
+uv run bandit -r src/planning_pro
 ```
 
 ### Structure du projet
 ```
 claude_planning/
-├── src/planning_pro/           # Code source principal
-│   ├── app.py                 # Routes Flask et API
-│   ├── models.py              # Modèles SQLite
-│   ├── database.py            # Gestionnaire BDD
-│   ├── salary_calculator.py   # Calculs de salaires
-│   └── config.py              # Configuration
-├── templates/                  # Templates HTML
-├── data/                      # Base de données
-├── main.py                    # Point d'entrée
-└── pyproject.toml             # Configuration uv
+├── src/planning_pro/                # Code source principal
+│   ├── app.py                      # Routes Flask et API
+│   ├── models.py                   # Modèles SQLite
+│   ├── database.py                 # Gestionnaire BDD
+│   ├── salary_calculator.py        # Calculs de salaires
+│   ├── net_salary_calculator.py    # Calculs de salaire net
+│   ├── pdf_generator.py            # Génération de PDF
+│   ├── security.py                 # Utilitaires de sécurité
+│   └── config.py                   # Configuration
+├── templates/                       # Templates HTML
+├── tests/                          # Suite de tests complète
+│   ├── __init__.py
+│   ├── conftest.py                 # Configuration pytest
+│   ├── test_models.py              # Tests unitaires modèles
+│   ├── test_api.py                 # Tests endpoints API
+│   ├── test_security.py            # Tests module sécurité
+│   ├── test_salary_calculator.py   # Tests calculateurs
+│   └── test_integration.py         # Tests d'intégration
+├── .github/workflows/              # GitHub Actions CI/CD
+│   └── ci.yml                      # Pipeline automatisé
+├── data/                           # Base de données et logs
+├── main.py                         # Point d'entrée développement
+├── run_prod.py                     # Point d'entrée production
+├── pytest.ini                     # Configuration pytest
+└── pyproject.toml                  # Configuration uv + outils
 ```
 
 ## 📡 API REST
@@ -178,7 +211,7 @@ claude_planning/
 - `GET /api/contracts` - Types de contrats disponibles
 
 ### Format des données API
-Les données sont stockées en SQLite mais échangées via API REST au format JSON :
+Les données sont stockées en SQLite et échangées via API REST au format JSON :
 
 **Exemple de planning :**
 ```json
@@ -198,6 +231,56 @@ Les données sont stockées en SQLite mais échangées via API REST au format JS
   ]
 }
 ```
+
+## 🧪 Tests et Qualité
+
+### Suite de tests complète
+
+L'application dispose d'une suite de tests exhaustive couvrant :
+
+#### Tests unitaires
+- **Modèles** : User, Planning, CreneauTravail, JourTravaille
+- **Calculateurs** : Salaire brut, net, tous types de contrats
+- **Sécurité** : Validation, sanitisation, schémas JSON
+
+#### Tests d'intégration
+- **Workflows utilisateur** : Inscription → Connexion → Planning → Feuille heures
+- **CRUD Planning** : Création, lecture, mise à jour, suppression
+- **Calculs salaire** : Cohérence entre plannings et feuilles d'heures
+
+#### Tests API
+- **Authentification** : Inscription, connexion, déconnexion
+- **Endpoints Planning** : Tous les endpoints avec validation
+- **Gestion erreurs** : Codes d'erreur, validation des données
+
+#### Tests de sécurité
+- **Validation données** : Emails, mots de passe, horaires, dates
+- **Sanitisation** : Protection XSS, injection
+- **Schémas JSON** : Validation stricte des API
+
+### Configuration qualité
+
+```bash
+# Couverture de tests minimale : 80%
+pytest --cov --cov-fail-under=80
+
+# Vérifications automatiques
+black --check src/           # Formatage
+flake8 src/                 # Style de code
+mypy src/planning_pro       # Types
+safety check                # Vulnérabilités
+bandit -r src/planning_pro  # Sécurité
+```
+
+### CI/CD avec GitHub Actions
+
+Pipeline automatisé qui vérifie :
+- **Tests** : Python 3.8-3.11, pytest avec coverage
+- **Qualité** : Black, flake8, mypy
+- **Sécurité** : Safety, Bandit
+- **Intégration** : Démarrage application
+- **Performance** : Tests de charge basiques
+- **Artifacts** : Build et rapports
 
 ## 🔐 Sécurité
 
@@ -235,12 +318,12 @@ L'application est prête pour la production avec des mesures de sécurité compl
 - **jours_travailles** : Jours travaillés d'une feuille
 - **creneaux_feuille** : Créneaux des feuilles d'heures
 
-### Migration JSON → SQLite
-L'application a été migrée du stockage JSON vers SQLite pour :
-- Améliorer les performances
-- Garantir l'intégrité des données
-- Faciliter les requêtes complexes
-- Permettre la montée en charge
+### Architecture SQLite
+L'application utilise SQLite pour :
+- Performances optimisées
+- Intégrité des données garantie
+- Requêtes complexes facilité
+- Montée en charge possible
 
 ## 🎯 Conformité légale
 

@@ -10,8 +10,10 @@
 
 ### Protection des données
 - **Isolation utilisateur** : Chaque utilisateur ne peut accéder qu'à ses propres données
-- **Validation des entrées** : Sanitisation des données utilisateur
-- **Stockage sécurisé** : Données sensibles non exposées
+- **Validation des entrées** : Module `security.py` avec validation stricte
+- **Sanitisation** : Échappement HTML et validation des formats
+- **Stockage sécurisé** : Base SQLite avec requêtes préparées
+- **Logs de sécurité** : Traçage des événements dans `data/security.log`
 
 ### Configuration sécurisée
 - **Variables d'environnement** : Secrets stockés hors du code
@@ -82,8 +84,13 @@ python -c "from src.planning_pro.config import Config; print('✅ Configuration 
 - [ ] `.env` dans `.gitignore`
 - [ ] Mots de passe forts pour les comptes de test
 - [ ] Configuration email sécurisée
-- [ ] Sauvegarde des données `data/`
-- [ ] Logs surveillés en production
+- [ ] Sauvegarde de `data/planning.db`
+- [ ] Logs surveillés en production (`data/*.log`)
+- [ ] Module `security.py` activé pour la validation
+- [ ] Requêtes SQLite sécurisées (requêtes préparées)
+- [ ] Tests de sécurité passent (`uv run pytest tests/test_security.py`)
+- [ ] Audit de sécurité propre (`uv run safety check`)
+- [ ] Scan Bandit sans problème (`uv run bandit -r src/planning_pro`)
 
 ## 🚫 Ce qu'il ne faut PAS faire
 
@@ -97,18 +104,28 @@ python -c "from src.planning_pro.config import Config; print('✅ Configuration 
 
 ### ❌ Fichiers à ne jamais committer
 - `.env`
-- `data/` (contient les données utilisateur)
-- `*.log`
+- `data/planning.db` (contient les données utilisateur)
+- `data/*.log` (logs sensibles)
 - `credentials.json`
 - `config.secret.py`
 
 ## 🔍 Surveillance et monitoring
 
 ### Logs à surveiller
+- **Security logs** : `data/security.log` - Événements de sécurité
+- **Access logs** : `data/access.log` - Accès aux ressources
+- **Error logs** : `data/error.log` - Erreurs applicatives
 - Tentatives de connexion échouées
 - Accès aux données sensibles
 - Erreurs de configuration
 - Requêtes suspectes
+
+### Tests de sécurité automatisés
+- **Validation d'entrées** : Tests des validateurs email, mot de passe, horaires
+- **Sanitisation** : Tests d'échappement HTML et protection XSS
+- **Schémas JSON** : Validation stricte des données API
+- **Authentification** : Tests des mécanismes de connexion/déconnexion
+- **Autorisation** : Vérification de l'isolation des données utilisateur
 
 ### Alertes recommandées
 - Multiples tentatives de connexion
@@ -131,18 +148,28 @@ Si vous découvrez une vulnérabilité de sécurité :
 - Vérifiez les dépendances : mensuelle
 - Mettez à jour les secrets : trimestrielle
 - Auditez les accès : semestrielle
-- Sauvegardez les données : hebdomadaire
+- Sauvegardez `data/planning.db` : hebdomadaire
+- Archivez les logs : mensuelle
 
 ### Commandes utiles
 ```bash
 # Vérifier les vulnérabilités
-pip-audit
+uv run safety check
+
+# Scan de sécurité du code
+uv run bandit -r src/planning_pro
+
+# Tests de sécurité
+uv run pytest tests/test_security.py -v
+
+# Audit complet
+uv run safety check && uv run bandit -r src/planning_pro && uv run pytest tests/test_security.py
 
 # Mettre à jour les dépendances
 uv sync --upgrade
 
 # Nettoyer les logs
-rm -f *.log
+rm -f data/*.log
 ```
 
 ---

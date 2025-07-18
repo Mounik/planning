@@ -1,0 +1,239 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.8, 3.9, "3.10", "3.11"]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v4
+      with:
+        version: "latest"
+
+    - name: Set up Python ${{ matrix.python-version }}
+      run: uv python install ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: |
+        uv sync --dev
+        uv pip install pytest pytest-cov pytest-xdist
+
+    - name: Lint with flake8
+      run: |
+        uv run flake8 src/planning_pro --count --select=E9,F63,F7,F82 --show-source --statistics
+        uv run flake8 src/planning_pro --count --exit-zero --max-complexity=10 --max-line-length=88 --statistics
+
+    - name: Format check with black
+      run: |
+        uv run black --check src/planning_pro
+
+    - name: Type check with mypy
+      run: |
+        uv run mypy src/planning_pro --ignore-missing-imports
+
+    - name: Test with pytest
+      run: |
+        uv run pytest tests/ -v --cov=src/planning_pro --cov-report=xml --cov-report=term-missing
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+
+  security:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v4
+      with:
+        version: "latest"
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Install dependencies
+      run: |
+        uv sync --dev
+        uv pip install safety bandit
+
+    - name: Security audit with safety
+      run: |
+        uv run safety check --json || true
+
+    - name: Security scan with bandit
+      run: |
+        uv run bandit -r src/planning_pro -f json -o bandit-report.json || true
+
+    - name: Upload security reports
+      uses: actions/upload-artifact@v4
+      with:
+        name: security-reports
+        path: |
+          bandit-report.json
+        retention-days: 30
+
+  build:
+    runs-on: ubuntu-latest
+    needs: [test, security]
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v4
+      with:
+        version: "latest"
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Install dependencies
+      run: uv sync --dev
+
+    - name: Build application
+      run: |
+        # Test que l'application démarre correctement
+        timeout 10s uv run python main.py || true
+
+    - name: Create deployment artifact
+      run: |
+        tar -czf planning-pro-${{ github.sha }}.tar.gz \
+          src/ \
+          templates/ \
+          main.py \
+          run_prod.py \
+          pyproject.toml \
+          uv.lock \
+          gunicorn_config.py \
+          README.md \
+          SECURITY.md
+
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: planning-pro-build
+        path: planning-pro-${{ github.sha }}.tar.gz
+        retention-days: 90
+
+  integration-test:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v4
+      with:
+        version: "latest"
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Install dependencies
+      run: uv sync --dev
+
+    - name: Start application
+      run: |
+        # Démarrer l'application en arrière-plan
+        uv run python main.py &
+        APP_PID=$!
+        
+        # Attendre que l'application soit prête
+        sleep 5
+        
+        # Tester les endpoints principaux
+        curl -f http://localhost:5000/ || exit 1
+        curl -f http://localhost:5000/api/contracts || exit 1
+        
+        # Arrêter l'application
+        kill $APP_PID
+      env:
+        FLASK_ENV: testing
+        SECRET_KEY: test-secret-key-for-ci
+
+    - name: Test production mode
+      run: |
+        # Tester le mode production
+        timeout 10s uv run python run_prod.py || true
+      env:
+        FLASK_ENV: production
+        SECRET_KEY: test-secret-key-for-ci
+
+  performance-test:
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v4
+      with:
+        version: "latest"
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Install dependencies
+      run: |
+        uv sync --dev
+        sudo apt-get update
+        sudo apt-get install -y apache2-utils
+
+    - name: Start application
+      run: |
+        uv run python main.py &
+        APP_PID=$!
+        sleep 5
+        
+        # Test de charge basique
+        ab -n 100 -c 10 http://localhost:5000/ || true
+        ab -n 50 -c 5 http://localhost:5000/api/contracts || true
+        
+        kill $APP_PID
+      env:
+        FLASK_ENV: testing
+        SECRET_KEY: test-secret-key-for-ci
+
+  notify:
+    runs-on: ubuntu-latest
+    needs: [test, security, build, integration-test]
+    if: always()
+
+    steps:
+    - name: Notify success
+      if: ${{ needs.test.result == 'success' && needs.security.result == 'success' && needs.build.result == 'success' && needs.integration-test.result == 'success' }}
+      run: |
+        echo "✅ All tests passed successfully!"
+        echo "Build artifact created and ready for deployment."
+
+    - name: Notify failure
+      if: ${{ needs.test.result == 'failure' || needs.security.result == 'failure' || needs.build.result == 'failure' || needs.integration-test.result == 'failure' }}
+      run: |
+        echo "❌ Pipeline failed!"
+        echo "Test result: ${{ needs.test.result }}"
+        echo "Security result: ${{ needs.security.result }}"
+        echo "Build result: ${{ needs.build.result }}"
+        echo "Integration test result: ${{ needs.integration-test.result }}"
+        exit 1

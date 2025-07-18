@@ -20,7 +20,7 @@ env/
 .gpt4all
 .huggingface
 .models
-CLAUDE.md
+# CLAUDE.md
 
 # Secrets and sensitive data
 .env

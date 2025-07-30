@@ -6,46 +6,183 @@
 <style>
 /* Styles pour l'impression */
 @media print {
-    body { font-size: 12px; }
+    * {
+        visibility: hidden;
+    }
+    
+    #feuilleModal,
+    #feuilleModal *,
+    #feuilleDetail,
+    #feuilleDetail * {
+        visibility: visible;
+    }
+    
+    body { 
+        font-size: 11px; 
+        line-height: 1.3;
+        margin: 0 !important;
+        padding: 0 !important;
+        background: white !important;
+    }
+    
     .modal-header .btn-close,
     .modal-footer,
     .navbar,
     .btn,
-    .no-print { display: none !important; }
+    .no-print { 
+        display: none !important; 
+        visibility: hidden !important;
+    }
+    
+    .modal-backdrop {
+        display: none !important;
+        visibility: hidden !important;
+    }
     
     .modal-dialog {
         max-width: 100% !important;
+        width: 100% !important;
         margin: 0 !important;
+        padding: 0 !important;
+        position: static !important;
+        transform: none !important;
     }
     
     .modal-content {
         border: none !important;
         box-shadow: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        position: static !important;
+        width: 100% !important;
+        max-height: none !important;
+        height: auto !important;
+        overflow: visible !important;
     }
     
     .modal-body {
-        padding: 0 !important;
+        padding: 15px !important;
+        margin: 0 !important;
+        max-height: none !important;
+        overflow: visible !important;
     }
     
+    /* Gestion des tableaux pour l'impression */
     .table {
-        page-break-inside: avoid;
+        page-break-inside: auto !important;
+        border-collapse: collapse !important;
+        width: 100% !important;
+        font-size: 10px !important;
+        margin-bottom: 20px !important;
     }
     
+    .table thead {
+        display: table-header-group !important;
+    }
+    
+    .table tbody {
+        display: table-row-group !important;
+    }
+    
+    .table tr {
+        page-break-inside: avoid !important;
+        page-break-after: auto !important;
+    }
+    
+    .table th,
+    .table td {
+        border: 1px solid #000 !important;
+        padding: 4px 6px !important;
+        word-wrap: break-word !important;
+        vertical-align: top !important;
+    }
+    
+    .table th {
+        background-color: #e9ecef !important;
+        font-weight: bold !important;
+        text-align: center !important;
+    }
+    
+    /* Force les grandes tables à se diviser */
+    .detail-table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+    }
+    
+    .detail-table tbody tr:nth-child(20n) {
+        page-break-after: always !important;
+    }
+    
+    /* Sections avec sauts de page contrôlés */
     .card {
         border: 1px solid #000 !important;
-        page-break-inside: avoid;
+        page-break-inside: avoid !important;
+        margin-bottom: 15px !important;
+        background: white !important;
     }
     
     .card-body {
-        padding: 10px !important;
+        padding: 8px !important;
     }
     
+    /* Titres */
     h1, h2, h3, h4, h5, h6 {
-        page-break-after: avoid;
+        page-break-after: avoid !important;
+        page-break-inside: avoid !important;
+        margin-top: 10px !important;
+        margin-bottom: 8px !important;
+        color: #000 !important;
     }
     
+    h4 {
+        font-size: 14px !important;
+        font-weight: bold !important;
+    }
+    
+    h5, h6 {
+        font-size: 12px !important;
+        font-weight: bold !important;
+    }
+    
+    /* Forcer les sauts de page */
     .page-break {
-        page-break-before: always;
+        page-break-before: always !important;
+    }
+    
+    .page-break-after {
+        page-break-after: always !important;
+    }
+    
+    /* Éviter les sauts de page dans certains éléments */
+    .no-page-break {
+        page-break-inside: avoid !important;
+    }
+    
+    /* Sections de résumé compactes */
+    .print-compact {
+        font-size: 10px !important;
+        line-height: 1.2 !important;
+    }
+    
+    /* Amélioration des badges pour l'impression */
+    .badge {
+        border: 1px solid #000 !important;
+        background-color: #f8f9fa !important;
+        color: #000 !important;
+        padding: 2px 4px !important;
+        font-size: 9px !important;
+        display: inline-block !important;
+        margin: 1px !important;
+    }
+    
+    /* Assurer que tout le contenu est visible */
+    .row, .col-md-6, .col-md-12 {
+        page-break-inside: auto !important;
+    }
+    
+    /* Pagination forcée pour les longues listes */
+    .mb-4:nth-of-type(3) {
+        page-break-before: always !important;
     }
 }
 
@@ -224,8 +361,8 @@ function afficherDetailFeuille(feuille) {
 
         <div class="row mb-4">
             <div class="col-md-6">
-                <div class="card bg-light">
-                    <div class="card-body">
+                <div class="card bg-light no-page-break">
+                    <div class="card-body print-compact">
                         <h6 class="card-title">Résumé des Heures</h6>
                         <div class="row">
                             <div class="col-6">
@@ -282,8 +419,8 @@ function afficherDetailFeuille(feuille) {
             </div>
 
             <div class="col-md-6">
-                <div class="card bg-light">
-                    <div class="card-body">
+                <div class="card bg-light no-page-break">
+                    <div class="card-body print-compact">
                         <h6 class="card-title">Calcul du Salaire</h6>
                         <div class="d-flex justify-content-between">
                             <span>Salaire normal:</span>
@@ -319,10 +456,10 @@ function afficherDetailFeuille(feuille) {
             </div>
         </div>
 
-        <div class="mb-4">
+        <div class="mb-4 ${feuille.jours_travailles.length > 20 ? 'page-break' : ''}">
             <h6>Détail des Jours Travaillés</h6>
             <div class="table-responsive">
-                <table class="table table-striped table-sm">
+                <table class="table table-striped table-sm detail-table">
                     <thead>
                         <tr>
                             <th>Date</th>
@@ -333,8 +470,10 @@ function afficherDetailFeuille(feuille) {
                     <tbody>
     `;
 
-    feuille.jours_travailles.forEach(jour => {
-        const date = new Date(jour.date);
+    feuille.jours_travailles.forEach((jour, index) => {
+        // Correction du problème de timezone avec les dates ISO
+        const dateParts = jour.date.split('-');
+        const date = new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]));
         const dateFormatee = date.toLocaleDateString('fr-FR', {
             weekday: 'short',
             day: 'numeric',
@@ -374,22 +513,39 @@ function afficherDetailFeuille(feuille) {
 // Variables globales pour l'export
 let feuilleActuelle = null;
 
-// Fonction d'impression
+// Fonction d'impression améliorée
 function imprimerFeuille() {
-    // Masquer les boutons avant l'impression
-    document.querySelectorAll('.modal-footer .btn').forEach(btn => {
+    if (!feuilleActuelle) {
+        alert('Aucune feuille sélectionnée pour l\'impression');
+        return;
+    }
+    
+    // Sauvegarder le titre original
+    const titleOriginal = document.title;
+    
+    // Masquer les éléments non imprimables
+    document.querySelectorAll('.modal-footer .btn, .modal-header .btn-close').forEach(btn => {
         btn.style.display = 'none';
     });
     
-    // Imprimer
-    window.print();
+    // Définir un titre pour l'impression
+    const moisNoms = ['', 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
+                     'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+    document.title = `Feuille_Heures_${moisNoms[feuilleActuelle.mois]}_${feuilleActuelle.annee}`;
     
-    // Restaurer les boutons après l'impression
+    // Attendre un court délai pour que les styles soient appliqués
     setTimeout(() => {
-        document.querySelectorAll('.modal-footer .btn').forEach(btn => {
-            btn.style.display = '';
-        });
-    }, 1000);
+        // Imprimer
+        window.print();
+        
+        // Restaurer après l'impression
+        setTimeout(() => {
+            document.querySelectorAll('.modal-footer .btn, .modal-header .btn-close').forEach(btn => {
+                btn.style.display = '';
+            });
+            document.title = titleOriginal;
+        }, 1000);
+    }, 100);
 }
 
 // Fonction d'export PDF
@@ -477,7 +633,9 @@ function genererContenuPDF(feuille) {
     `;
     
     feuille.jours_travailles.forEach(jour => {
-        const date = new Date(jour.date);
+        // Correction du problème de timezone avec les dates ISO
+        const dateParts = jour.date.split('-');
+        const date = new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]));
         const dateFormatee = date.toLocaleDateString('fr-FR', {
             weekday: 'long',
             day: 'numeric',

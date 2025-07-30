@@ -7,6 +7,7 @@ from flask import (
     flash,
     jsonify,
     current_app,
+    send_file,
 )
 from flask_login import (
     LoginManager,
@@ -30,6 +31,7 @@ from .security import (
     log_security_event,
     rate_limit,
 )
+from .pdf_generator import pdf_generator
 
 # Chemin vers le répertoire racine du projet
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -53,7 +55,7 @@ csrf = CSRFProtect(app)
 if app.config.get("SECURITY_HEADERS", True):
     csp = {
         "default-src": "'self'",
-        "script-src": "'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com",
+        "script-src": "'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://code.jquery.com",
         "style-src": "'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com",
         "font-src": "'self' https://cdnjs.cloudflare.com",
         "img-src": "'self' data:",
@@ -899,6 +901,60 @@ def api_feuille_heures_detail(feuille_id):
                 jsonify({"success": False, "error": "Erreur lors de la suppression"}),
                 500,
             )
+
+
+@app.route("/api/feuille-heures/<int:feuille_id>/pdf", methods=["GET"])
+@login_required
+@rate_limit(max_requests=50, window_seconds=3600)
+def api_feuille_heures_pdf(feuille_id):
+    """Génère et télécharge le PDF d'une feuille d'heures"""
+    try:
+        # Récupérer la feuille d'heures
+        feuille = FeuilleDHeures.get_by_id(feuille_id)
+        if not feuille or feuille.user_id != current_user.id:
+            log_security_event(
+                "PDF_UNAUTHORIZED",
+                f"Unauthorized PDF access to feuille {feuille_id}",
+                current_user.id,
+            )
+            return jsonify({"error": "Feuille d'heures non trouvée"}), 404
+
+        # Convertir la feuille en dictionnaire
+        feuille_data = feuille.to_dict()
+
+        # Générer le PDF
+        pdf_buffer = pdf_generator.generer_pdf_feuille(feuille_data)
+
+        # Nom du fichier
+        mois_noms = ['', 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
+                    'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
+        mois_nom = mois_noms[feuille.mois]
+        filename = f"feuille_heures_{mois_nom}_{feuille.annee}.pdf"
+
+        # Log de succès
+        log_security_event(
+            "PDF_SUCCESS",
+            f"PDF generated for feuille {feuille_id}",
+            current_user.id,
+        )
+
+        # Retourner le fichier PDF
+        return send_file(
+            pdf_buffer,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=filename
+        )
+
+    except Exception as e:
+        # Log de l'erreur
+        log_security_event(
+            "PDF_ERROR",
+            f"PDF generation failed for feuille {feuille_id}: {str(e)}",
+            current_user.id,
+        )
+        current_app.logger.error(f"Erreur génération PDF: {str(e)}")
+        return jsonify({"error": f"Erreur lors de la génération du PDF: {str(e)}"}), 500
 
 
 if __name__ == "__main__":

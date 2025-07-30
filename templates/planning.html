@@ -144,7 +144,8 @@ function genererCalendrier() {
     for (let jour = 1; jour <= nbJours; jour++) {
         const date = new Date(annee, mois - 1, jour);
         const nomJour = date.toLocaleDateString('fr-FR', { weekday: 'long' });
-        const dateStr = date.toISOString().split('T')[0];
+        // Correction: créer la date ISO manuellement pour éviter les problèmes de timezone
+        const dateStr = `${annee}-${mois.toString().padStart(2, '0')}-${jour.toString().padStart(2, '0')}`;
 
         // Par défaut, travailler tous les jours (restaurants travaillent souvent 7j/7)
         const travaille = true;
@@ -282,8 +283,8 @@ function sauvegarderPlanning() {
         const checkbox = document.getElementById(`travail_${jour}`);
 
         if (checkbox.checked) {
-            const date = new Date(annee, mois - 1, jour);
-            const dateStr = date.toISOString().split('T')[0];
+            // Correction: créer la date ISO manuellement pour éviter les problèmes de timezone
+            const dateStr = `${annee}-${mois.toString().padStart(2, '0')}-${jour.toString().padStart(2, '0')}`;
 
             const creneauxContainer = document.getElementById(`creneaux_${jour}`);
             const creneauxElements = creneauxContainer.querySelectorAll('.creneau-item');
@@ -448,7 +449,8 @@ function genererCalendrierAvecDonnees(joursExistants) {
     for (let jour = 1; jour <= nbJours; jour++) {
         const date = new Date(annee, mois - 1, jour);
         const nomJour = date.toLocaleDateString('fr-FR', { weekday: 'long' });
-        const dateStr = date.toISOString().split('T')[0];
+        // Correction: créer la date ISO manuellement pour éviter les problèmes de timezone
+        const dateStr = `${annee}-${mois.toString().padStart(2, '0')}-${jour.toString().padStart(2, '0')}`;
 
         // Chercher si ce jour existe dans les données
         const jourExistant = joursExistants.find(j => j.date === dateStr);

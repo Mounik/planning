@@ -172,7 +172,7 @@ uv run bandit -r src/planning_pro
 
 ### Structure du projet
 ```
-claude_planning/
+planning/
 ├── src/planning_pro/                # Code source principal
 │   ├── app.py                      # Routes Flask et API
 │   ├── models.py                   # Modèles SQLite
